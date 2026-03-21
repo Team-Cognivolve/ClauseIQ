@@ -14,63 +14,6 @@ export const ANALYSIS_TIMEOUT_MS = 420000;
 export const RAG_TOP_K = 14;
 export const RAG_MIN_SCORE = 1;
 
-export const CATEGORY_DEFINITIONS = [
-  {
-    id: 'NON-COMPETE',
-    question: 'Is there a post-termination work restriction or client/solicit ban?',
-    keywords: [
-      'non-compete', 'non compete', 'compete', 'restriction', 'restrict',
-      'post-termination', 'after termination', 'solicit', 'solicitation',
-      'customer', 'client', 'employee', '12 months', '24 months',
-      'non-solicit', 'non solicit', 'engage', 'directly or indirectly',
-    ],
-  },
-  {
-    id: 'LIABILITY',
-    question: 'Is liability unlimited, one-sided, or disproportionate?',
-    keywords: [
-      'liability', 'liable', 'indemnity', 'indemnify', 'damages',
-      'consequential', 'indirect', 'unlimited', 'without limit',
-      'defend and hold harmless', 'all losses', 'all claims',
-      'hold harmless', 'at its sole discretion', 'any and all',
-    ],
-  },
-  {
-    id: 'IP_TRANSFER',
-    question: 'Does IP ownership transfer before full payment?',
-    keywords: [
-      'intellectual property', 'ip', 'work product', 'ownership', 'assign',
-      'assignment', 'rights', 'title', 'interest', 'transfer',
-      'upon creation', 'made for hire', 'work for hire', 'before payment',
-      'irrevocably assigns', 'vests in client', 'exclusive property',
-    ],
-  },
-  {
-    id: 'TERMINATION',
-    question: 'Can client terminate without paying for completed work?',
-    keywords: [
-      'terminate', 'termination', 'cancel', 'cancellation', 'without cause',
-      'for convenience', 'notice', 'payment', 'fees due', 'services rendered',
-      'no further liability', 'refund', 'work performed', 'kill fee',
-      'immediate termination', 'terminate at any time', 'already performed',
-    ],
-  },
-];
-
-export function buildFocusedPrompt(categoryId, question, snippets) {
-  const joined = snippets.map((s, i) => `(${i + 1}) ${s}`).join('\n\n');
-  return `Category focus: ${categoryId}
-Question: ${question}
-
-Potentially relevant clauses (retrieved locally):
-${joined || 'No strong matches found.'}
-
-Task:
-- Only return findings for category ${categoryId}.
-- Use only quoted text from the snippets.
-- If no risky clause is present, return [] for this category.
-- Return JSON array only.`;
-}
 
 export const SYSTEM_PROMPT = `You are a professional legal risk analyst specialising in freelance and contractor agreements.
 Analyse the supplied contract text and identify ALL potentially harmful clauses across these exact categories:

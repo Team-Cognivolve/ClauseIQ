@@ -1,8 +1,4 @@
-// utils/rag.js
-
-// ============================================================
 // CLAUSE EXTRACTION - Structural Parsing for Contract Analysis
-// ============================================================
 
 /**
  * Regex patterns for identifying clause boundaries in contracts
@@ -241,10 +237,6 @@ export function filterSubstantiveClauses(clauses) {
     return true;
   });
 }
-
-// ============================================================
-// LEGACY FUNCTIONS (to be removed in later steps)
-// ============================================================
 
 function splitIntoCandidateClauses(text) {
   if (!text || typeof text !== 'string') return [];
