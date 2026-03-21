@@ -2,9 +2,9 @@
 
 // Low-spec default model for CPU-only laptops.
 // If you want better quality and have more RAM, move up to Qwen2.5-1.5B.
-export const MODEL_ID = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
-export const MODEL_LABEL = 'Qwen2.5-0.5B';
-export const MODEL_SIZE_LABEL = '~0.45 GB';
+export const MODEL_ID = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';
+export const MODEL_LABEL = 'Qwen2.5-1.5B';
+export const MODEL_SIZE_LABEL = '~1.5 GB';
 
 // Conservative settings for 4 GB RAM devices.
 export const CHUNK_WORDS = 900;
