@@ -1,11 +1,18 @@
-// workers/llm.worker.js
+// Universal Clause Analysis Worker - WebLLM Integration
+// Analyzes contract clauses using local LLM (privacy-first approach)
+
 import { CreateMLCEngine } from '@mlc-ai/web-llm';
 import { INFERENCE_MAX_TOKENS } from '../utils/constants';
 
 let engine = null;
 let loadError = null;
 
-// ─── Engine Bootstrap ────────────────────────────────────────────────────────
+// ENGINE INITIALIZATION
+
+/**
+ * Initialize WebLLM engine with progress tracking
+ * @param {string} modelId - MLC model identifier (e.g., 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC')
+ */
 async function loadEngine(modelId) {
   try {
     engine = await CreateMLCEngine(modelId, {
@@ -23,26 +30,44 @@ async function loadEngine(modelId) {
   }
 }
 
-// ─── Robust JSON Extraction ──────────────────────────────────────────────────
-// Tries several strategies so that minor model formatting quirks don't fail
-// the whole analysis.
-function extractJSON(raw) {
-  // 1. Direct parse
-  try { return JSON.parse(raw.trim()); } catch (_) {}
+// JSON EXTRACTION & PARSING
 
-  // 2. Fenced markdown block  ```json ... ``` or ``` ... ```
+/**
+ * Robust JSON extraction from LLM output
+ * Handles various formatting issues from small language models:
+ * - Markdown code fences (```json ... ```)
+ * - Preamble/trailing text
+ * - Single objects vs arrays
+ * - Whitespace/formatting issues
+ *
+ * @param {string} raw - Raw LLM output text
+ * @returns {Array|Object|null} Parsed JSON or null if extraction fails
+ */
+function extractJSON(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+
+  // 1. Direct parse - cleanest case
+  try {
+    return JSON.parse(raw.trim());
+  } catch (_) {}
+
+  // 2. Markdown code fence: ```json ... ``` or ``` ... ```
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenced) {
-    try { return JSON.parse(fenced[1].trim()); } catch (_) {}
+    try {
+      return JSON.parse(fenced[1].trim());
+    } catch (_) {}
   }
 
-  // 3. First [...] array in the string
+  // 3. Find first complete JSON array [...]
   const arrMatch = raw.match(/\[[\s\S]*\]/);
   if (arrMatch) {
-    try { return JSON.parse(arrMatch[0]); } catch (_) {}
+    try {
+      return JSON.parse(arrMatch[0]);
+    } catch (_) {}
   }
 
-  // 4. First {...} object – wrap in array
+  // 4. Find first complete JSON object {...} and wrap in array
   const objMatch = raw.match(/\{[\s\S]*\}/);
   if (objMatch) {
     try {
@@ -51,15 +76,38 @@ function extractJSON(raw) {
     } catch (_) {}
   }
 
-  return null; // give up
+  // 5. All strategies failed
+  return null;
 }
 
-// ─── Analysis ────────────────────────────────────────────────────────────────
+// CLAUSE ANALYSIS
+
+/**
+ * Analyze contract clauses using WebLLM
+ * Universal analysis - no predefined categories, detects ALL clause types
+ *
+ * Expected output schema per clause:
+ * {
+ *   clause_text: string,
+ *   clause_type: string,
+ *   risk_level: "High" | "Medium" | "Low",
+ *   explanation: string,
+ *   concerns: string[]
+ * }
+ *
+ * @param {string} requestId - Unique ID for request tracking
+ * @param {string} text - Contract text or formatted clause batch
+ * @param {string} systemPrompt - System prompt defining analysis behavior
+ * @param {string} userPrompt - Optional user prompt (uses default if not provided)
+ */
 async function analyzeChunk(requestId, text, systemPrompt, userPrompt) {
   if (!engine) {
     self.postMessage({
       type: 'analyzeError',
-      payload: { requestId, message: loadError || 'Model not loaded yet.' },
+      payload: {
+        requestId,
+        message: loadError || 'Model not loaded yet. Please wait for initialization.',
+      },
     });
     return;
   }
@@ -70,7 +118,7 @@ async function analyzeChunk(requestId, text, systemPrompt, userPrompt) {
       {
         role: 'user',
         content: userPrompt || (
-          `Analyse the following contract text and return ONLY the JSON array:\n\n` +
+          `Analyze the following contract text and return ONLY the JSON array of clause analyses:\n\n` +
           `CONTRACT TEXT:\n${text}`
         ),
       },
@@ -78,7 +126,7 @@ async function analyzeChunk(requestId, text, systemPrompt, userPrompt) {
 
     const reply = await engine.chat.completions.create({
       messages,
-      temperature: 0.1,   // low temp = deterministic JSON
+      temperature: 0.1, // Low temperature for consistent, deterministic JSON output
       max_tokens: INFERENCE_MAX_TOKENS,
     });
 
@@ -86,17 +134,26 @@ async function analyzeChunk(requestId, text, systemPrompt, userPrompt) {
     const parsed = extractJSON(content);
 
     if (parsed === null) {
-      // Return empty array rather than crashing – better UX
+      // JSON extraction failed - return empty array with error flag
+      // This allows graceful degradation to pattern-based fallback
       self.postMessage({
         type: 'analyzeResult',
-        payload: { requestId, result: [], parseError: true, rawResponse: content },
+        payload: {
+          requestId,
+          result: [],
+          parseError: true,
+          rawResponse: content.substring(0, 500), // First 500 chars for debugging
+        },
       });
       return;
     }
 
+    // Ensure result is always an array
+    const resultArray = Array.isArray(parsed) ? parsed : [parsed];
+
     self.postMessage({
       type: 'analyzeResult',
-      payload: { requestId, result: Array.isArray(parsed) ? parsed : [parsed] },
+      payload: { requestId, result: resultArray },
     });
   } catch (err) {
     self.postMessage({
@@ -106,11 +163,29 @@ async function analyzeChunk(requestId, text, systemPrompt, userPrompt) {
   }
 }
 
-// ─── Message Router ──────────────────────────────────────────────────────────
+// MESSAGE ROUTER
+
+/**
+ * Worker message handler
+ * Supported message types:
+ * - 'load': Initialize WebLLM engine with specified model
+ * - 'analyze': Analyze contract text and return clause risk assessments
+ */
 self.addEventListener('message', ({ data }) => {
   const { type, payload } = data;
   switch (type) {
-    case 'load':    loadEngine(payload.modelId); break;
-    case 'analyze': analyzeChunk(payload.requestId, payload.text, payload.systemPrompt, payload.userPrompt); break;
+    case 'load':
+      loadEngine(payload.modelId);
+      break;
+    case 'analyze':
+      analyzeChunk(
+        payload.requestId,
+        payload.text,
+        payload.systemPrompt,
+        payload.userPrompt
+      );
+      break;
+    default:
+      console.warn(`Unknown message type: ${type}`);
   }
 });
