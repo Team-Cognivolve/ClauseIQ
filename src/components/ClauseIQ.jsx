@@ -1,25 +1,37 @@
-// components/ClauseIQ.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { usePDFExtractor } from '../hooks/usePDFExtractor';
-import { useWebLLM }       from '../hooks/useWebLLM';
-import { CATEGORY_DEFINITIONS, RAG_TOP_K, RAG_MIN_SCORE, buildFocusedPrompt } from '../utils/constants';
-import { retrieveCategorySnippets, normalizeFinding, fallbackFindingsForCategory } from '../utils/rag';
-import { UploadArea }       from './UploadArea';
+import { useWebLLM } from '../hooks/useWebLLM';
+import {
+  buildClauseAnalysisPrompt,
+  detectRiskByPattern,
+  generateFallbackAnalysis,
+} from '../utils/constants';
+import {
+  extractClauses,
+  filterSubstantiveClauses,
+  batchClauses,
+  normalizeClauseAnalysis,
+  validateAndEnrichAnalysis,
+} from '../utils/rag';
+import { UploadArea } from './UploadArea';
 import { ProgressIndicator } from './ProgressIndicator';
-import { ResultsList }       from './ResultsList';
+import { ResultsList } from './ResultsList';
 
 export function ClauseIQ() {
   const pdf = usePDFExtractor();
   const llm = useWebLLM();
 
-  const [analyzing,     setAnalyzing]     = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
-  const [results,       setResults]       = useState(null);
+  const [results, setResults] = useState(null);
 
   // Guard ref: ensures we never run two analyses for the same document
   const didAnalyse = useRef(false);
 
-  // ─── Trigger analysis when PDF is ready AND model is loaded ─────────
+  // ============================================================
+  // UNIVERSAL CLAUSE ANALYSIS - No Category Constraints
+  // ============================================================
+
   useEffect(() => {
     const canRun = pdf.status === 'done' && llm.modelState === 'ready' && !didAnalyse.current;
     if (!canRun) return;
@@ -32,62 +44,107 @@ export function ClauseIQ() {
       setResults(null);
 
       try {
-        const allFindings = [];
+        // Step 1: Extract all clauses using structural parsing
+        const allClauses = extractClauses(pdf.text);
 
-        // Local RAG-like retrieval: per category, send only relevant snippets.
-        for (const category of CATEGORY_DEFINITIONS) {
-          const snippets = retrieveCategorySnippets(
-            pdf.text,
-            category,
-            RAG_TOP_K,
-            RAG_MIN_SCORE,
-          );
+        // Step 2: Filter to get only substantive clauses (remove boilerplate)
+        const substantiveClauses = filterSubstantiveClauses(allClauses);
 
-          if (snippets.length === 0) {
-            continue;
-          }
+        if (substantiveClauses.length === 0) {
+          setAnalysisError('No substantial clauses found in the contract.');
+          return;
+        }
 
-          const prompt = buildFocusedPrompt(category.id, category.question, snippets);
-          const categoryFindings = await llm.analyze(snippets.join('\n\n'), { userPrompt: prompt });
-          let categoryAcceptedCount = 0;
+        // Step 3: Batch clauses for processing (5 per batch for optimal context)
+        const clauseBatches = batchClauses(substantiveClauses, 5);
 
-          if (Array.isArray(categoryFindings)) {
-            for (const raw of categoryFindings) {
-              const normalized = normalizeFinding(raw, category.id);
-              if (normalized) {
-                allFindings.push(normalized);
-                categoryAcceptedCount += 1;
-              }
+        const allAnalyses = [];
+
+        // Step 4: Process each batch
+        for (let batchIndex = 0; batchIndex < clauseBatches.length; batchIndex++) {
+          const batch = clauseBatches[batchIndex];
+
+          // Step 4a: Pre-scan batch with pattern detection
+          const patternResults = batch.map(clause => ({
+            clause,
+            patterns: detectRiskByPattern(clause.cleanText || clause.text),
+          }));
+
+          // Step 4b: Build LLM prompt for this batch
+          const userPrompt = buildClauseAnalysisPrompt(batch);
+
+          // Step 4c: Send to LLM for analysis
+          let llmAnalyses = [];
+          try {
+            const llmResponse = await llm.analyze(pdf.text, { userPrompt });
+
+            // Parse and normalize LLM response
+            if (Array.isArray(llmResponse)) {
+              llmAnalyses = llmResponse
+                .map((item, index) => normalizeClauseAnalysis(item, batch[index]))
+                .filter(item => item !== null);
             }
+          } catch (err) {
+            console.warn(`LLM analysis failed for batch ${batchIndex + 1}:`, err);
           }
 
-          // Deterministic fallback: if the model misses obvious candidates,
-          // still emit a small number of conservative findings.
-          if (categoryAcceptedCount === 0) {
-            const fallback = fallbackFindingsForCategory(category.id, snippets, 1);
-            allFindings.push(...fallback);
+          // Step 4d: Validate, enrich, or fallback for each clause
+          for (let i = 0; i < batch.length; i++) {
+            const clause = batch[i];
+            const patternResult = patternResults[i].patterns;
+
+            let finalAnalysis;
+
+            if (llmAnalyses[i]) {
+              // LLM succeeded - validate and enrich with pattern detection
+              finalAnalysis = validateAndEnrichAnalysis(
+                llmAnalyses[i],
+                clause,
+                patternResult
+              );
+            } else {
+              // LLM failed - use pattern-based fallback
+              finalAnalysis = generateFallbackAnalysis(clause, patternResult);
+            }
+
+            // Only include clauses with actual concerns or Medium/High risk
+            if (
+              finalAnalysis.risk_level !== 'Low' ||
+              finalAnalysis.concerns.length > 0
+            ) {
+              allAnalyses.push(finalAnalysis);
+            }
           }
         }
 
-        // Deduplicate by first 80 chars of clause_text
-        const seen   = new Set();
-        const unique = allFindings.filter(r => {
-          const key = (r.clause_text ?? '').slice(0, 80).toLowerCase();
+        // Step 5: Deduplicate by clause text (first 100 chars)
+        const seen = new Set();
+        const unique = allAnalyses.filter(analysis => {
+          const key = (analysis.clause_text ?? '').slice(0, 100).toLowerCase();
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
         });
 
-        setResults(unique);
+        // Step 6: Sort by risk level (High → Medium → Low)
+        const sorted = unique.sort((a, b) => {
+          const riskOrder = { High: 0, Medium: 1, Low: 2 };
+          return riskOrder[a.risk_level] - riskOrder[b.risk_level];
+        });
+
+        setResults(sorted);
       } catch (err) {
         setAnalysisError(err.message);
       } finally {
         setAnalyzing(false);
       }
     })();
-  }, [pdf.status, llm.modelState, pdf.text, pdf.pageCount, llm.analyze]);
+  }, [pdf.status, llm.modelState, pdf.text, llm.analyze]);
 
-  // ─── File selection ──────────────────────────────────────────────────
+  // ============================================================
+  // FILE HANDLING
+  // ============================================================
+
   const handleFileSelect = (file) => {
     didAnalyse.current = false; // allow a fresh analysis run
     setResults(null);
@@ -95,16 +152,20 @@ export function ClauseIQ() {
     pdf.extractText(file);
   };
 
-  // ─── Derived flags ───────────────────────────────────────────────────
+  // ============================================================
+  // DERIVED STATE
+  // ============================================================
+
   const waitingForModel = pdf.status === 'done' && llm.modelState === 'loading';
 
   return (
     <div className="clauseiq">
-
-      {/* ── Brand header ── */}
+      {/* Brand Header */}
       <header className="brand">
         <div className="brand__lockup">
-          <span className="brand__icon" aria-hidden>&#x2696;&#xFE0F;</span>
+          <span className="brand__icon" aria-hidden>
+            &#x2696;&#xFE0F;
+          </span>
           <span className="brand__name">ClauseIQ</span>
         </div>
         <p className="brand__tagline">
@@ -112,45 +173,40 @@ export function ClauseIQ() {
         </p>
       </header>
 
-      {/* ── Model loading bar ── */}
+      {/* Model Loading Progress */}
       <ProgressIndicator modelState={llm.modelState} loadProgress={llm.loadProgress} />
 
-      {/* ── Upload ── */}
-      <UploadArea
-        onFileSelect={handleFileSelect}
-        status={pdf.status}
-        error={pdf.error}
-      />
+      {/* File Upload */}
+      <UploadArea onFileSelect={handleFileSelect} status={pdf.status} error={pdf.error} />
 
-      {/* ── Document metadata ── */}
+      {/* Document Metadata */}
       {pdf.status === 'done' && (
         <div className="doc-meta" aria-live="polite">
           <span className="doc-meta__pages">
             &#x1F4CB;&nbsp;{pdf.pageCount} page{pdf.pageCount !== 1 ? 's' : ''} extracted
           </span>
           {pdf.pageCount > 4 && (
-            <span className="doc-meta__chip">Sliding-window analysis active</span>
+            <span className="doc-meta__chip">Structural clause extraction active</span>
           )}
         </div>
       )}
 
-      {/* ── Waiting for model ── */}
+      {/* Waiting for Model */}
       {waitingForModel && (
         <div className="waiting-banner" role="status">
           &#x23F3;&nbsp;Waiting for the AI model to finish loading before analysing…
         </div>
       )}
 
-      {/* ── Analysis error ── */}
+      {/* Analysis Error */}
       {analysisError && (
         <div className="error-banner" role="alert">
           &#x26A0;&#xFE0F;&nbsp;Analysis error: {analysisError}
         </div>
       )}
 
-      {/* ── Results ── */}
+      {/* Results */}
       <ResultsList results={results} analyzing={analyzing} />
-
     </div>
   );
 }

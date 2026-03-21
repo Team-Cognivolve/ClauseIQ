@@ -1,4 +1,3 @@
-// hooks/usePDFExtractor.js
 import { useState, useCallback } from 'react';
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';

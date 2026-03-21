@@ -1,8 +1,7 @@
-/* App.css – ClauseIQ complete design system */
+/* ClauseIQ complete design system */
 
-/* ────────────────────────────────────────────────────────────
-   Design tokens
-──────────────────────────────────────────────────────────── */
+/* Design tokens */
+
 :root {
   --bg:           #0b0d14;
   --surface:      #12151f;

@@ -1,4 +1,3 @@
-// components/ProgressIndicator.jsx
 import React from 'react';
 import { MODEL_LABEL, MODEL_SIZE_LABEL } from '../utils/constants';
 

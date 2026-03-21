@@ -1,4 +1,3 @@
-// App.jsx
 import React from 'react';
 import { ClauseIQ } from './components/ClauseIQ';
 import './App.css';
