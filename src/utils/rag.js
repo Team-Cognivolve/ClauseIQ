@@ -1,4 +1,5 @@
-// CLAUSE EXTRACTION - Structural Parsing for Contract Analysis
+// utils/rag.js
+// Clause Extraction & Universal Analysis - Structural Parsing for Contract Analysis
 
 /**
  * Regex patterns for identifying clause boundaries in contracts
