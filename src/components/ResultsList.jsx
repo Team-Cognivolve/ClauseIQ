@@ -1,39 +1,38 @@
 // components/ResultsList.jsx
 import React, { useState } from 'react';
 
+// Risk level configuration with icons and styles
 const RISK = {
-  High:   { cls: 'risk--high',   icon: '\uD83D\uDEA8', label: 'High Risk' },
-  Medium: { cls: 'risk--medium', icon: '\u26A0\uFE0F',  label: 'Medium Risk' },
-};
-
-const CATEGORIES = {
-  'NON-COMPETE': 'Non-Compete',
-  LIABILITY:     'Liability',
-  IP_TRANSFER:   'IP Transfer',
-  TERMINATION:   'Termination',
+  High: { cls: 'risk--high', icon: '🚨', label: 'High Risk' },
+  Medium: { cls: 'risk--medium', icon: '⚠️', label: 'Medium Risk' },
+  Low: { cls: 'risk--low', icon: 'ℹ️', label: 'Low Risk' },
 };
 
 function ResultCard({ item, index }) {
   const [open, setOpen] = useState(false);
-  const risk  = RISK[item.risk_level] ?? RISK.Medium;
-  const label = CATEGORIES[item.category] ?? item.category;
+  const risk = RISK[item.risk_level] ?? RISK.Medium;
 
   return (
-    <article className={`result-card ${item.risk_level === 'High' ? 'result-card--high' : 'result-card--medium'}`}>
+    <article
+      className={`result-card result-card--${item.risk_level.toLowerCase()}`}
+      aria-labelledby={`result-${index}-heading`}
+    >
       {/* Header row – always visible */}
       <button
         className="result-card__header"
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
+        aria-controls={`result-${index}-details`}
+        id={`result-${index}-heading`}
       >
         <div className="result-card__badges">
           <span className={`risk-badge ${risk.cls}`}>
             {risk.icon} {risk.label}
           </span>
-          <span className="category-badge">{label}</span>
+          <span className="clause-type-badge">{item.clause_type}</span>
         </div>
         <span className="result-card__chevron" aria-hidden>
-          {open ? '\u25B2' : '\u25BC'}
+          {open ? '▲' : '▼'}
         </span>
       </button>
 
@@ -44,15 +43,27 @@ function ResultCard({ item, index }) {
 
       {/* Expandable detail */}
       {open && (
-        <div className="result-card__detail">
+        <div className="result-card__detail" id={`result-${index}-details`}>
           <div className="detail-block">
-            <h4 className="detail-block__heading">Why it&rsquo;s risky</h4>
+            <h4 className="detail-block__heading">What this means</h4>
             <p>{item.explanation}</p>
           </div>
-          <div className="detail-block detail-block--suggestion">
-            <h4 className="detail-block__heading">💡 Suggestion</h4>
-            <p>{item.suggestion}</p>
-          </div>
+
+          {/* Concerns section - only show if there are concerns */}
+          {item.concerns && item.concerns.length > 0 && (
+            <div className="detail-block detail-block--concerns">
+              <h4 className="detail-block__heading">
+                🔍 Specific Concerns
+              </h4>
+              <ul className="concerns-list">
+                {item.concerns.map((concern, idx) => (
+                  <li key={idx} className="concern-item">
+                    {concern}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </article>
@@ -73,30 +84,53 @@ export function ResultsList({ results, analyzing }) {
 
   if (!results) return null;
 
-  const high   = results.filter(r => r.risk_level === 'High');
+  // Group results by risk level
+  const high = results.filter(r => r.risk_level === 'High');
   const medium = results.filter(r => r.risk_level === 'Medium');
-  const sorted = [...high, ...medium];
+  const low = results.filter(r => r.risk_level === 'Low');
+
+  // Results are already sorted by risk level from ClauseIQ component
+  const hasIssues = results.length > 0;
 
   return (
     <section className="results" aria-live="polite">
       <div className="results__header">
         <h2 className="results__title">Analysis Complete</h2>
         <div className="results__summary">
-          {high.length   > 0 && <span className="summary-pill summary-pill--high">{high.length} High Risk</span>}
-          {medium.length > 0 && <span className="summary-pill summary-pill--medium">{medium.length} Medium Risk</span>}
-          {sorted.length === 0 && <span className="summary-pill summary-pill--clean">✓ No red flags</span>}
+          {high.length > 0 && (
+            <span className="summary-pill summary-pill--high">
+              {high.length} High Risk
+            </span>
+          )}
+          {medium.length > 0 && (
+            <span className="summary-pill summary-pill--medium">
+              {medium.length} Medium Risk
+            </span>
+          )}
+          {low.length > 0 && (
+            <span className="summary-pill summary-pill--low">
+              {low.length} Low Risk
+            </span>
+          )}
+          {!hasIssues && (
+            <span className="summary-pill summary-pill--clean">✓ No concerns found</span>
+          )}
         </div>
       </div>
 
-      {sorted.length === 0 ? (
+      {!hasIssues ? (
         <div className="no-issues">
-          <p>🎉 No red-flag clauses were identified in this contract.</p>
+          <p>🎉 No concerning clauses were identified in this contract.</p>
           <p>Consider having a qualified solicitor review it before signing.</p>
         </div>
       ) : (
         <div className="results__list">
-          {sorted.map((item, idx) => (
-            <ResultCard key={`${item.category}-${idx}`} item={item} index={idx} />
+          {results.map((item, idx) => (
+            <ResultCard
+              key={`${item.clause_type}-${idx}`}
+              item={item}
+              index={idx}
+            />
           ))}
         </div>
       )}
