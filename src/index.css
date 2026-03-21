@@ -1,4 +1,3 @@
-/* index.css – base reset & global defaults */
 *, *::before, *::after {
   box-sizing: border-box;
 }

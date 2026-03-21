@@ -1,4 +1,3 @@
-// components/UploadArea.jsx
 import React, { useRef, useState, useCallback } from 'react';
 
 export function UploadArea({ onFileSelect, status, error }) {

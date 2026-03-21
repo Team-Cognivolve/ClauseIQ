@@ -1,4 +1,3 @@
-// components/ClauseIQ.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { usePDFExtractor } from '../hooks/usePDFExtractor';
 import { useWebLLM } from '../hooks/useWebLLM';

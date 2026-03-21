@@ -1,5 +1,3 @@
-// utils/chunker.js
-
 /**
  * Splits contract text into overlapping word-based chunks for the LLM context window.
  * Overlap preserves sentence context across chunk boundaries.

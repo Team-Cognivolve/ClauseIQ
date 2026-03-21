@@ -1,5 +1,3 @@
-// utils/constants.js
-
 // Low-spec default model for CPU-only laptops.
 // If you want better quality and have more RAM, move up to Qwen2.5-1.5B.
 export const MODEL_ID = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';

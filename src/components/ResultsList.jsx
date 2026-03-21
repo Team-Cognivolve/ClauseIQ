@@ -1,4 +1,3 @@
-// components/ResultsList.jsx
 import React, { useState } from 'react';
 
 // Risk level configuration with icons and styles

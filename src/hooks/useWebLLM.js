@@ -1,4 +1,3 @@
-// hooks/useWebLLM.js
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MODEL_ID, SYSTEM_PROMPT, ANALYSIS_TIMEOUT_MS } from '../utils/constants';
 
