@@ -176,24 +176,38 @@ export function ClauseIQ() {
 
   return (
     <div className="clauseiq">
-      {/* Brand Header */}
+      {/* Brand Header - Dark SaaS Hero */}
       <header className="brand">
+        {/* Status Badge */}
+        <div className="brand__top-nav">
+          <span className="brand__status-dot"></span>
+          <span className="brand__status-label">V2.0 LEGAL ENGINE LIVE</span>
+        </div>
+
+        {/* Logo Lockup */}
         <div className="brand__lockup">
           <span className="brand__icon" aria-hidden>
             &#x2696;&#xFE0F;
           </span>
           <span className="brand__name">ClauseIQ</span>
         </div>
+
+        {/* Giant Headline with Gradient */}
+        <h1 className="brand__headline">
+          Legal Intelligence <span className="brand__headline-gradient">Reimagined.</span>
+        </h1>
+
+        {/* Tagline */}
         <p className="brand__tagline">
-          AI-powered contract red-flag detector &mdash; 100&thinsp;% private, runs in your browser
+          Instantly analyze, redline, and extract critical clauses with high-fidelity AI trained for the complexities of modern law.
         </p>
       </header>
 
-      {/* Model Loading Progress */}
-      <ProgressIndicator modelState={llm.modelState} loadProgress={llm.loadProgress} />
-
-      {/* File Upload */}
+      {/* File Upload - Right Side Dropzone */}
       <UploadArea onFileSelect={handleFileSelect} status={pdf.status} error={pdf.error} />
+
+      {/* Model Loading Progress - Shown on hero if loading */}
+      {llm.modelState === 'loading' && <ProgressIndicator modelState={llm.modelState} loadProgress={llm.loadProgress} />}
 
       {/* Document Metadata */}
       {pdf.status === 'done' && (
