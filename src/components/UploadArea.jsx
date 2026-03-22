@@ -62,13 +62,13 @@ export function UploadArea({ onFileSelect, status, error }) {
 
       <div className="upload-copy">
         {isExtracting ? (
-          <span className="upload-copy__primary">Extracting text from PDF…</span>
+          <span className="upload-copy__primary">Extracting text…</span>
         ) : isDone ? (
-          <span className="upload-copy__primary">PDF loaded &mdash; drop or click to replace</span>
+          <span className="upload-copy__primary">PDF loaded successfully</span>
         ) : (
           <>
-            <span className="upload-copy__primary">Drop your contract PDF here</span>
-            <span className="upload-copy__secondary">or click to browse</span>
+            <span className="upload-copy__primary">Drop Contract Here</span>
+            <span className="upload-copy__secondary">or click anywhere to browse files</span>
           </>
         )}
       </div>
