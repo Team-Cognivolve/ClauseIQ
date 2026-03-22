@@ -5,6 +5,7 @@ import {
   buildClauseAnalysisPrompt,
   detectRiskByPattern,
   generateFallbackAnalysis,
+  MAX_CONCURRENT_ANALYSES,
 } from '../utils/constants';
 import {
   extractClauses,
@@ -55,15 +56,11 @@ export function ClauseIQ() {
           return;
         }
 
-        // Step 3: Batch clauses for processing (5 per batch for optimal context)
-        const clauseBatches = batchClauses(substantiveClauses, 5);
+        // Step 3: Batch clauses for processing (8 per batch for optimal throughput)
+        const clauseBatches = batchClauses(substantiveClauses, 8);
 
-        const allAnalyses = [];
-
-        // Step 4: Process each batch
-        for (let batchIndex = 0; batchIndex < clauseBatches.length; batchIndex++) {
-          const batch = clauseBatches[batchIndex];
-
+        // Step 4: Process batches in parallel (limited concurrency to avoid overload)
+        const processBatch = async (batch, batchIndex) => {
           // Step 4a: Pre-scan batch with pattern detection
           const patternResults = batch.map(clause => ({
             clause,
@@ -89,6 +86,7 @@ export function ClauseIQ() {
           }
 
           // Step 4d: Validate, enrich, or fallback for each clause
+          const batchAnalyses = [];
           for (let i = 0; i < batch.length; i++) {
             const clause = batch[i];
             const patternResult = patternResults[i].patterns;
@@ -112,10 +110,28 @@ export function ClauseIQ() {
               finalAnalysis.risk_level !== 'Low' ||
               finalAnalysis.concerns.length > 0
             ) {
-              allAnalyses.push(finalAnalysis);
+              batchAnalyses.push(finalAnalysis);
             }
           }
-        }
+
+          return batchAnalyses;
+        };
+
+        // Helper function for parallel batch processing with concurrency limit
+        const processWithConcurrency = async (batches, concurrency) => {
+          const results = [];
+          for (let i = 0; i < batches.length; i += concurrency) {
+            const chunk = batches.slice(i, i + concurrency);
+            const batchPromises = chunk.map((batch, offset) =>
+              processBatch(batch, i + offset)
+            );
+            const chunkResults = await Promise.all(batchPromises);
+            results.push(...chunkResults.flat());
+          }
+          return results;
+        };
+
+        const allAnalyses = await processWithConcurrency(clauseBatches, MAX_CONCURRENT_ANALYSES);
 
         // Step 5: Deduplicate by clause text (first 100 chars)
         const seen = new Set();

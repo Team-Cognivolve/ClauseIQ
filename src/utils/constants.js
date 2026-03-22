@@ -8,9 +8,10 @@ export const MODEL_SIZE_LABEL = '~1.5 GB';
 export const CHUNK_WORDS = 900;
 export const CHUNK_OVERLAP = 100;
 export const INFERENCE_MAX_TOKENS = 512;
-export const ANALYSIS_TIMEOUT_MS = 420000;
+export const ANALYSIS_TIMEOUT_MS = 20000; // 20 seconds per batch (reduced from 420s)
 export const RAG_TOP_K = 14;
 export const RAG_MIN_SCORE = 1;
+export const MAX_CONCURRENT_ANALYSES = 10; // Process 10 batches in parallel
 
 // HEURISTIC RISK PATTERNS - Pattern Matching for Risk Detection
 
