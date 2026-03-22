@@ -68,19 +68,10 @@ export function UploadArea({ onFileSelect, status, error }) {
         ) : (
           <>
             <span className="upload-copy__primary">Drop Contract Here</span>
-            <span className="upload-copy__secondary">Upload PDF or DOCX to begin AI-powered audit</span>
+            <span className="upload-copy__secondary">or click anywhere to browse files</span>
           </>
         )}
       </div>
-
-      <button 
-        className="upload-btn"
-        onClick={() => inputRef.current?.click()}
-        type="button"
-        aria-label="Browse files"
-      >
-        📁 Browse Files
-      </button>
 
       {error && (
         <p className="upload-error" role="alert">{error}</p>
