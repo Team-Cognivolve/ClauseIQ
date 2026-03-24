@@ -49,18 +49,24 @@ export function extractClauses(text) {
   const clauses = [];
   let clauseId = 0;
 
-  // Normalize text: handle different line endings
-  const normalizedText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  // Normalize text: handle different line endings and multiple spaces
+  const normalizedText = text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+/g, ' ') // Collapse multiple spaces
+    .replace(/\n{3,}/g, '\n\n'); // Max 2 consecutive newlines
 
   // Split by potential clause boundaries
   const segments = splitByClauseBoundaries(normalizedText);
 
   for (const segment of segments) {
     const trimmed = segment.trim();
-    if (!trimmed || trimmed.length < 20) continue;
 
-    // Skip very short segments that are likely headers only
-    if (trimmed.length < 50 && !trimmed.includes(' ')) continue;
+    // Skip very short segments
+    if (!trimmed || trimmed.length < 30) continue;
+
+    // Skip segments that are just headers with no content
+    if (trimmed.split(' ').length < 8) continue;
 
     // Extract header if present
     const headerInfo = extractHeader(trimmed);
@@ -74,8 +80,8 @@ export function extractClauses(text) {
     });
   }
 
-  // Merge very short consecutive clauses that might be split incorrectly
-  return mergeSplitClauses(clauses);
+  // Don't merge clauses - keep them separate for better granularity
+  return clauses;
 }
 
 /**
@@ -84,22 +90,52 @@ export function extractClauses(text) {
 function splitByClauseBoundaries(text) {
   const segments = [];
 
-  // Primary split: Look for numbered sections and article headers
-  const primaryPattern = /(?=(?:^|\n)(?:\d+\.)+\s)|(?=(?:^|\n)(?:article|section|clause)\s+[\dIVXivx]+)/gi;
+  // Comprehensive split patterns for legal clauses
+  const splitPatterns = [
+    // Numbered sections: 1. 2. 3. or 1.1, 1.2, etc.
+    /(?=\n\s*\d+\.\d*\s+[A-Z])/g,
+    // Article/Section headers
+    /(?=\n\s*(?:article|section|clause|part)\s+[\dIVXivx]+\.?\s)/gi,
+    // ALL CAPS headers on their own line
+    /(?=\n\s*[A-Z][A-Z\s]{3,}[A-Z](?:\s*[.:])?\s*\n)/g,
+    // Lettered sub-sections
+    /(?=\n\s*\([a-z]\)\s)/gi,
+    // Roman numeral sections
+    /(?=\n\s*\([ivx]+\)\s)/gi,
+  ];
 
-  let parts = text.split(primaryPattern);
+  // Try each split pattern
+  let parts = [text];
 
-  // If primary split didn't produce good results, fall back to paragraph split
-  if (parts.length < 3) {
-    parts = text.split(/\n{2,}/);
+  for (const pattern of splitPatterns) {
+    const newParts = [];
+    for (const part of parts) {
+      const splitResult = part.split(pattern);
+      newParts.push(...splitResult);
+    }
+    parts = newParts;
+  }
+
+  // If still not enough splits, try double newlines
+  if (parts.length < 5) {
+    const newParts = [];
+    for (const part of parts) {
+      if (part.length > 800) {
+        const subParts = part.split(/\n{2,}/);
+        newParts.push(...subParts);
+      } else {
+        newParts.push(part);
+      }
+    }
+    parts = newParts;
   }
 
   for (const part of parts) {
     const trimmed = part.trim();
     if (!trimmed) continue;
 
-    // If segment is very long, try to split further
-    if (trimmed.length > 2000) {
+    // If segment is still too long, split further
+    if (trimmed.length > 800) {
       const subParts = splitLongSegment(trimmed);
       segments.push(...subParts);
     } else {
@@ -115,25 +151,69 @@ function splitByClauseBoundaries(text) {
  */
 function splitLongSegment(text) {
   const parts = [];
+  const maxLength = 600;
 
   // Try splitting by sub-sections (a), (b), etc.
   const subSectionPattern = /(?=\n\s*\([a-z]\)\s)/gi;
   let subParts = text.split(subSectionPattern);
 
   if (subParts.length > 1) {
-    return subParts.map(p => p.trim()).filter(p => p.length >= 20);
+    // Recursively check if sub-parts are still too long
+    for (const subPart of subParts) {
+      const trimmed = subPart.trim();
+      if (trimmed.length > maxLength) {
+        parts.push(...splitBySentences(trimmed, maxLength));
+      } else if (trimmed.length >= 20) {
+        parts.push(trimmed);
+      }
+    }
+    return parts;
   }
 
-  // Fall back to splitting by sentences at reasonable boundaries
-  const sentences = text.split(/(?<=[.;])\s+(?=[A-Z])/);
+  // Try splitting by semicolons (common in legal lists)
+  const semicolonParts = text.split(/;\s*(?=\n|[A-Z])/);
+  if (semicolonParts.length > 2) {
+    for (const part of semicolonParts) {
+      const trimmed = part.trim();
+      if (trimmed.length >= 20 && trimmed.length <= maxLength) {
+        parts.push(trimmed);
+      } else if (trimmed.length > maxLength) {
+        parts.push(...splitBySentences(trimmed, maxLength));
+      }
+    }
+    if (parts.length > 1) return parts;
+  }
+
+  // Fall back to splitting by sentences
+  return splitBySentences(text, maxLength);
+}
+
+/**
+ * Split text by sentences, grouping into chunks of max length
+ */
+function splitBySentences(text, maxLength = 600) {
+  const parts = [];
+
+  // Split by sentence endings followed by space and capital letter
+  const sentences = text.split(/(?<=[.!?])\s+(?=[A-Z])/);
   let current = '';
 
   for (const sentence of sentences) {
-    if ((current + sentence).length < 1500) {
-      current += (current ? ' ' : '') + sentence;
+    const trimmedSentence = sentence.trim();
+    if (!trimmedSentence) continue;
+
+    if ((current + ' ' + trimmedSentence).length <= maxLength) {
+      current += (current ? ' ' : '') + trimmedSentence;
     } else {
       if (current) parts.push(current.trim());
-      current = sentence;
+
+      // If single sentence is too long, just add it anyway
+      if (trimmedSentence.length > maxLength) {
+        parts.push(trimmedSentence);
+        current = '';
+      } else {
+        current = trimmedSentence;
+      }
     }
   }
 
@@ -223,7 +303,13 @@ export function filterSubstantiveClauses(clauses) {
   ];
 
   return clauses.filter(clause => {
+    // Defensive check: ensure clause exists and has text
+    if (!clause || typeof clause !== 'object') return false;
+
     const text = clause.cleanText || clause.text;
+
+    // Defensive check: ensure text is a valid string
+    if (!text || typeof text !== 'string') return false;
 
     // Must have minimum content
     if (text.length < 30) return false;
@@ -242,7 +328,7 @@ export function filterSubstantiveClauses(clauses) {
 
 /**
  * Normalize and validate clause analysis from LLM output
- * Supports new schema: clause_type, risk_level (High/Medium/Low), concerns array
+ * Supports schema: clause_type, risk_level (High/Medium/Low), negotiation string
  * @param {Object} item - Raw analysis object from LLM
  * @param {Object} originalClause - Original clause object for fallback
  * @returns {Object|null} Normalized analysis or null if invalid
@@ -272,14 +358,16 @@ export function normalizeClauseAnalysis(item, originalClause = null) {
     clauseType = 'General Provision';
   }
 
-  // Normalize concerns array
-  let concerns = [];
-  if (Array.isArray(item.concerns)) {
-    concerns = item.concerns
-      .map(c => String(c).trim())
-      .filter(c => c.length > 0);
-  } else if (typeof item.concerns === 'string' && item.concerns.trim()) {
-    concerns = [item.concerns.trim()];
+  // Normalize negotiation (string field)
+  let negotiation = '';
+  if (typeof item.negotiation === 'string') {
+    negotiation = item.negotiation.trim();
+  } else if (Array.isArray(item.concerns) && item.concerns.length > 0) {
+    // Backwards compatibility: convert concerns array to negotiation suggestion
+    const concernsList = item.concerns.map(c => String(c).trim()).filter(c => c.length > 0);
+    if (concernsList.length > 0) {
+      negotiation = `I would like to discuss: ${concernsList.join(', ').toLowerCase()}. Can we find more balanced terms?`;
+    }
   }
 
   // Normalize explanation
@@ -291,7 +379,7 @@ export function normalizeClauseAnalysis(item, originalClause = null) {
     clause_type: clauseType,
     risk_level: riskLevel,
     explanation,
-    concerns,
+    negotiation,
   };
 }
 
@@ -314,11 +402,10 @@ export function validateAndEnrichAnalysis(llmAnalysis, clause, patternResult) {
     enriched.risk_level = 'Medium';
   }
 
-  // Merge pattern-detected concerns with LLM concerns
-  if (patternResult.matches && patternResult.matches.length > 0) {
-    const patternConcerns = patternResult.matches.map(m => m.concern);
-    const allConcerns = [...new Set([...enriched.concerns, ...patternConcerns])];
-    enriched.concerns = allConcerns;
+  // If pattern detected issues but LLM didn't provide negotiation, generate one
+  if (patternResult.matches && patternResult.matches.length > 0 && !enriched.negotiation) {
+    const concerns = patternResult.matches.map(m => m.concern);
+    enriched.negotiation = `I would like to address: ${concerns.join(', ').toLowerCase()}. Can we discuss alternative terms?`;
   }
 
   // If LLM provided a generic clause_type but pattern has more specific type, use pattern type
@@ -388,9 +475,12 @@ export function batchClauses(clauses, batchSize = 5) {
     return [];
   }
 
+  // Filter out any invalid clauses before batching
+  const validClauses = clauses.filter(c => c && typeof c === 'object' && (c.text || c.cleanText));
+
   const batches = [];
-  for (let i = 0; i < clauses.length; i += batchSize) {
-    batches.push(clauses.slice(i, i + batchSize));
+  for (let i = 0; i < validClauses.length; i += batchSize) {
+    batches.push(validClauses.slice(i, i + batchSize));
   }
 
   return batches;

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 
-// Risk level configuration with icons and styles
+// Risk level configuration with styles (no emojis for professional look)
 const RISK = {
-  High: { cls: 'risk--high', icon: '🚨', label: 'High Risk' },
-  Medium: { cls: 'risk--medium', icon: '⚠️', label: 'Medium Risk' },
-  Low: { cls: 'risk--low', icon: 'ℹ️', label: 'Low Risk' },
+  High: { cls: 'risk--high', label: 'High Risk' },
+  Medium: { cls: 'risk--medium', label: 'Medium Risk' },
+  Low: { cls: 'risk--low', label: 'Low Risk' },
 };
 
 function ResultCard({ item, index }) {
@@ -26,7 +26,7 @@ function ResultCard({ item, index }) {
       >
         <div className="result-card__badges">
           <span className={`risk-badge ${risk.cls}`}>
-            {risk.icon} {risk.label}
+            {risk.label}
           </span>
           <span className="clause-type-badge">{item.clause_type}</span>
         </div>
@@ -44,23 +44,17 @@ function ResultCard({ item, index }) {
       {open && (
         <div className="result-card__detail" id={`result-${index}-details`}>
           <div className="detail-block">
-            <h4 className="detail-block__heading">What this means</h4>
+            <h4 className="detail-block__heading">What This Means</h4>
             <p>{item.explanation}</p>
           </div>
 
-          {/* Concerns section - only show if there are concerns */}
-          {item.concerns && item.concerns.length > 0 && (
-            <div className="detail-block detail-block--concerns">
+          {/* Negotiation section - only show if there is negotiation advice */}
+          {item.negotiation && String(item.negotiation).trim() && (
+            <div className="detail-block detail-block--suggestion">
               <h4 className="detail-block__heading">
-                🔍 Specific Concerns
+                Negotiation
               </h4>
-              <ul className="concerns-list">
-                {item.concerns.map((concern, idx) => (
-                  <li key={idx} className="concern-item">
-                    {concern}
-                  </li>
-                ))}
-              </ul>
+              <p>{item.negotiation}</p>
             </div>
           )}
         </div>
@@ -75,21 +69,22 @@ export function ResultsList({ results, analyzing }) {
       <section className="results" aria-live="polite">
         <div className="analyzing-banner">
           <span className="spinner" aria-hidden />
-          <span>Analysing contract for red flags… this may take a couple of minutes.</span>
+          <span>Analysing contract for red flags...</span>
         </div>
       </section>
     );
   }
 
-  if (!results) return null;
+  if (!results || !Array.isArray(results)) return null;
 
-  // Group results by risk level
-  const high = results.filter(r => r.risk_level === 'High');
-  const medium = results.filter(r => r.risk_level === 'Medium');
-  const low = results.filter(r => r.risk_level === 'Low');
+  // Filter out any invalid results and group by risk level
+  const validResults = results.filter(r => r && typeof r === 'object' && r.risk_level);
+  const high = validResults.filter(r => r.risk_level === 'High');
+  const medium = validResults.filter(r => r.risk_level === 'Medium');
+  const low = validResults.filter(r => r.risk_level === 'Low');
 
   // Results are already sorted by risk level from ClauseIQ component
-  const hasIssues = results.length > 0;
+  const hasIssues = validResults.length > 0;
 
   return (
     <section className="results" aria-live="polite">
@@ -112,19 +107,19 @@ export function ResultsList({ results, analyzing }) {
             </span>
           )}
           {!hasIssues && (
-            <span className="summary-pill summary-pill--clean">✓ No concerns found</span>
+            <span className="summary-pill summary-pill--clean">No concerns found</span>
           )}
         </div>
       </div>
 
       {!hasIssues ? (
         <div className="no-issues">
-          <p>🎉 No concerning clauses were identified in this contract.</p>
+          <p>No concerning clauses were identified in this contract.</p>
           <p>Consider having a qualified solicitor review it before signing.</p>
         </div>
       ) : (
         <div className="results__list">
-          {results.map((item, idx) => (
+          {validResults.map((item, idx) => (
             <ResultCard
               key={`${item.clause_type}-${idx}`}
               item={item}
