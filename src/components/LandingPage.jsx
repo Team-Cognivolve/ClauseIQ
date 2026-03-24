@@ -1,8 +1,8 @@
 import React from 'react';
 import './LandingPage.css';
-import forbiddenIcon from '../assets/forbidden-svgrepo-com.svg';
-import lightbulbIcon from '../assets/lightbulb-minimalistic-svgrepo-com.svg';
-import loginIcon from '../assets/login-3-svgrepo-com.svg';
+import forbiddenIcon from '../assets/icon1.svg';
+import lightbulbIcon from '../assets/icon2.svg';
+import loginIcon from '../assets/icon3.svg';
 
 export function LandingPage({ onEnterApp }) {
   return (
