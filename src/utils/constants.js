@@ -4,14 +4,14 @@ export const MODEL_ID = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';
 export const MODEL_LABEL = 'Qwen2.5-1.5B';
 export const MODEL_SIZE_LABEL = '~1.5 GB';
 
-// Conservative settings for 4 GB RAM devices.
+// Optimized for M4 MacBook Air with 16GB RAM - Neural Engine acceleration
 export const CHUNK_WORDS = 900;
 export const CHUNK_OVERLAP = 100;
-export const INFERENCE_MAX_TOKENS = 512;
-export const ANALYSIS_TIMEOUT_MS = 20000; // 20 seconds per batch (reduced from 420s)
+export const INFERENCE_MAX_TOKENS = 1024; 
+export const ANALYSIS_TIMEOUT_MS = 10000; 
 export const RAG_TOP_K = 14;
 export const RAG_MIN_SCORE = 1;
-export const MAX_CONCURRENT_ANALYSES = 10; // Process 10 batches in parallel
+export const MAX_CONCURRENT_ANALYSES = 10; 
 
 // HEURISTIC RISK PATTERNS - Pattern Matching for Risk Detection
 
@@ -216,12 +216,19 @@ export function generateFallbackAnalysis(clause, patternResult) {
 
   // Generate explanation based on risk level
   let explanation = '';
+  let negotiation = '';
+
   if (patternResult.level === 'High') {
-    explanation = `This clause contains language that may create significant risk or unfair obligations. ${concerns.length > 0 ? 'Specific concerns have been identified.' : 'Careful review is recommended.'}`;
+    explanation = `This clause contains terms that could significantly impact your rights or obligations. ${concerns.length > 0 ? `It includes: ${concerns.join(', ').toLowerCase()}.` : ''} Before signing, you should carefully consider whether these terms are acceptable for your situation. This type of clause often favors one party more than the other.`;
+    negotiation = concerns.length > 0
+      ? `I would like to discuss modifying this clause to address the following: ${concerns.join(', ').toLowerCase()}. Can we find more balanced terms?`
+      : 'I have concerns about this clause and would like to discuss more balanced alternatives.';
   } else if (patternResult.level === 'Medium') {
-    explanation = `This clause may require clarification or negotiation. While not immediately problematic, it could lead to issues in certain situations.`;
+    explanation = `This clause may need some clarification or adjustment. While not immediately problematic, the language could be interpreted in different ways or may create obligations that need to be clearly understood. It's worth discussing with the other party to ensure both sides have the same understanding.`;
+    negotiation = 'Could we clarify the specific terms and conditions in this clause to ensure both parties have the same understanding?';
   } else {
-    explanation = `This clause appears to follow standard industry practices and does not present obvious risks.`;
+    explanation = `This clause appears to follow standard practices and creates reasonable obligations for both parties. The terms seem balanced and should not create unexpected issues during the course of the agreement.`;
+    negotiation = '';
   }
 
   return {
@@ -229,52 +236,35 @@ export function generateFallbackAnalysis(clause, patternResult) {
     clause_type: clauseType,
     risk_level: patternResult.level,
     explanation,
-    concerns,
+    negotiation,
   };
 }
 
-export const SYSTEM_PROMPT = `You are an expert contract analysis AI specializing in identifying and assessing risks in legal agreements.
+export const SYSTEM_PROMPT = `You are an expert contract analyst who explains legal clauses in plain language that anyone can understand.
 
-TASK: Analyze the provided contract clauses and assess each one for potential risks, fairness, and implications.
+TASK: Analyze contract clauses and explain them clearly. For risky clauses, suggest how to negotiate better terms.
 
-For EACH clause provided, return a JSON object with the following structure:
+For EACH clause, return a JSON object:
 {
-  "clause_text": "<exact verbatim text of the clause being analyzed>",
-  "clause_type": "<descriptive name of what this clause covers, e.g., 'Payment Terms', 'Confidentiality', 'Intellectual Property Rights', 'Liability Cap', 'Non-Compete Restriction', etc.>",
+  "clause_text": "<exact text of the clause>",
+  "clause_type": "<type: Payment Terms, Liability, Non-Compete, Confidentiality, IP Rights, Termination, etc.>",
   "risk_level": "High" | "Medium" | "Low",
-  "explanation": "<clear, plain-language description of what this clause means and its practical implications>",
-  "concerns": ["<specific issue 1>", "<specific issue 2>", ...] or []
+  "explanation": "<A clear 3-5 sentence paragraph explaining what this clause actually means in everyday language. What does each party have to do? What are the consequences? What rights or restrictions does it create? Write as if explaining to a friend who has never read a contract before.>",
+  "negotiation": "<If the clause is unfair or risky, write 1-2 sentences suggesting what to say to negotiate better terms. Write it as actual words someone could use in a meeting, like: 'I propose we limit liability to fees paid rather than unlimited liability.' If the clause is fair and balanced, use empty string.>"
 }
 
-RISK LEVEL CRITERIA:
-- High: Heavily one-sided terms, creates unlimited liability/exposure, severely restricts rights, unfair compensation/IP terms, or could cause significant harm
-- Medium: Potentially problematic in certain situations, ambiguous language, minor imbalance, or requires negotiation for clarity
-- Low: Standard industry practice, balanced terms, or favorable to both parties
+RISK LEVELS:
+- High: One-sided terms, unlimited liability, severely restricts rights, unfair obligations
+- Medium: Potentially problematic, ambiguous language, needs clarification
+- Low: Standard industry practice, balanced and fair to both parties
 
-CONCERNS FIELD:
-List specific red flags or issues with the clause. Examples:
-- "Unlimited liability exposure"
-- "No compensation for early termination"
-- "Overly broad non-compete (24 months, worldwide)"
-- "IP transfer before payment"
-- "One-sided indemnification"
-- "No cap on damages"
-- "Vague termination conditions"
-If the clause is fair and balanced, return empty array: []
+OUTPUT: Return ONLY a valid JSON array. No markdown fences, no extra text.
 
-OUTPUT FORMAT:
-Return ONLY a valid JSON array containing one object per clause analyzed.
-Example: [{"clause_text": "...", "clause_type": "...", "risk_level": "...", "explanation": "...", "concerns": [...]}, ...]
-
-If no clauses are provided or none need analysis, return empty array: []
-
-CRITICAL RULES:
-1. Output ONLY the JSON array - no preamble, no markdown code fences, no commentary
-2. Use EXACT text from the provided clauses - do NOT invent or modify clause text
-3. Be thorough but concise in explanations (2-4 sentences)
-4. Clause types should be descriptive and specific (not generic labels)
-5. Focus on practical business and legal risks from a contractor/service provider perspective
-6. If a clause has multiple concerning aspects, list all in the concerns array`;
+RULES:
+1. Explanations must be in simple, everyday language - no legal jargon
+2. For negotiation, write it as actual suggested dialog the person could use
+3. If clause is Low risk and fair, negotiation should be empty string ""
+4. Focus on practical real-world impact for both parties`;
 
 /**
  * Build analysis prompt for a batch of clauses
@@ -287,6 +277,7 @@ export function buildClauseAnalysisPrompt(clauses) {
   }
 
   const clauseTexts = clauses
+    .filter(clause => clause && typeof clause === 'object' && (clause.cleanText || clause.text))
     .map((clause, index) => {
       const header = clause.header ? `[${clause.header}]\n` : '';
       return `CLAUSE ${index + 1}:\n${header}${clause.cleanText || clause.text}`;
