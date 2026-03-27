@@ -13,6 +13,20 @@ This platform will also be localized to offer **multilingual capabilities** and 
 
 ---
 
+## Tech Stack Used
+
+- **Frontend Framework**: React 19
+- **Build Tool**: Vite 6
+- **Language**: JavaScript (ES Modules)
+- **AI Inference (On-Device)**: @mlc-ai/web-llm (WebLLM) with Qwen2.5-1.5B
+- **Browser Acceleration**: WebGPU
+- **Document Processing**: pdfjs-dist
+- **Concurrency**: Web Workers (`src/workers/llm.worker.js`)
+- **Code Quality**: ESLint 9
+- **Deployment**: Vercel (`vercel.json`)
+
+---
+
 ## ✨ Key Features
 
 - 🔒 **100% Privacy-First**: All processing happens locally in your browser
