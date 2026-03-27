@@ -4,6 +4,85 @@ import forbiddenIcon from '../assets/icon1.svg';
 import lightbulbIcon from '../assets/icon2.svg';
 import loginIcon from '../assets/icon3.svg';
 
+const pricingPlans = [
+  {
+    title: "Free",
+    price: "₹0",
+    description: "Perfect for students and first-time interns.",
+    features: [
+      "On-device WebLLM Analysis",
+      "Clause Extraction",
+      "Basic Negotiation Tips",
+      "Export Results (PDF/Text)",
+      "100% Privacy (Zero-Egress)",
+    ],
+    limitations: "Slower processing, 5-page PDF limit",
+    buttonText: "Get Started",
+    highlight: false
+  },
+  {
+    title: "Developer",
+    price: "₹499",
+    description: "For power users who want speed and depth.",
+    features: [
+      "Everything in Free",
+      "Bring Your Own API Key (BYOK)",
+      "Interactive Contract Chatbot",
+      "Visual 'Red Flag' Overlay",
+      "Automatic PII Masking/Demasking",
+    ],
+    limitations: "Unlimited pages (based on your API)",
+    buttonText: "Go Pro",
+    highlight: true
+  },
+  {
+    title: "Premium",
+    price: "₹999",
+    description: "The ultimate legal shield for professionals.",
+    features: [
+      "Everything in Developer",
+      "Premium LLM Access (Claude/Gemini Pro)",
+      "Multi-Contract Comparison",
+      "Multi-lingual Support",
+      "Jurisdiction & Compliance Check",
+    ],
+    limitations: "Priority Processing",
+    buttonText: "Upgrade to Premium",
+    highlight: false
+  }
+];
+
+function PricingCard({ plan, onClick, featured }) {
+  return (
+    <div className={`pricing-card ${featured ? 'pricing-card--featured' : ''}`}>
+      {featured && <div className="pricing-card__badge">Recommended</div>}
+      <h3 className="pricing-card__title">{plan.title}</h3>
+      <div className="pricing-card__price">
+        <span className="pricing-card__amount">{plan.price}</span>
+        {plan.price !== "₹0" && <span className="pricing-card__period">/month</span>}
+      </div>
+      <p className="pricing-card__description">{plan.description}</p>
+      <button className="pricing-card__button" onClick={onClick}>
+        {plan.buttonText}
+      </button>
+      <div className="pricing-card__features">
+        <h4 className="pricing-card__features-title">Features</h4>
+        <ul className="pricing-card__features-list">
+          {plan.features.map((feature, idx) => (
+            <li key={idx} className="pricing-card__feature-item">
+              <span className="pricing-card__feature-icon">✓</span>
+              {feature}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="pricing-card__limitation">
+        <p><strong>Note:</strong> {plan.limitations}</p>
+      </div>
+    </div>
+  );
+}
+
 export function LandingPage({ onEnterApp }) {
   return (
     <div className="landing">
@@ -14,6 +93,7 @@ export function LandingPage({ onEnterApp }) {
           <ul className="landing-nav__links">
             <li><a href="#product">PRODUCT</a></li>
             <li><a href="#intelligence">INTELLIGENCE</a></li>
+            <li><a href="#pricing">PRICING</a></li>
             <li><a href="#company">COMPANY</a></li>
           </ul>
           <button className="landing-nav__cta" onClick={onEnterApp}>
@@ -200,6 +280,21 @@ export function LandingPage({ onEnterApp }) {
                 </div>
               </li>
             </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing Section */}
+      <section className="pricing" id="pricing">
+        <div className="pricing__container">
+          <div className="pricing__header">
+            <h2 className="pricing__title">Simple, Transparent Pricing</h2>
+            <p className="pricing__subtitle">Choose the plan that works for you</p>
+          </div>
+          <div className="pricing__grid">
+            <PricingCard plan={pricingPlans[0]} onClick={onEnterApp} />
+            <PricingCard plan={pricingPlans[1]} featured />
+            <PricingCard plan={pricingPlans[2]} />
           </div>
         </div>
       </section>

@@ -769,6 +769,189 @@
 }
 
 /* ============================================================
+   Pricing Section
+   ============================================================ */
+.pricing {
+  background-color: var(--landing-bg);
+  padding: 120px 48px;
+  border-top: 1px solid var(--landing-border);
+}
+
+.pricing__container {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.pricing__header {
+  text-align: center;
+  margin-bottom: 80px;
+}
+
+.pricing__title {
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: 3rem;
+  font-weight: 400;
+  line-height: 1.2;
+  color: var(--landing-text-primary);
+  margin: 0 0 16px 0;
+}
+
+.pricing__subtitle {
+  font-size: 1.1rem;
+  color: var(--landing-text-secondary);
+  margin: 0;
+}
+
+.pricing__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 40px;
+}
+
+.pricing-card {
+  background: var(--landing-surface);
+  border: 1px solid var(--landing-border);
+  border-radius: 12px;
+  padding: 48px 32px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.pricing-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
+}
+
+.pricing-card--featured {
+  border: 2px solid var(--landing-accent-red);
+  transform: scale(1.05);
+  background: linear-gradient(135deg, rgba(158, 66, 44, 0.02) 0%, rgba(95, 97, 74, 0.02) 100%);
+}
+
+.pricing-card--featured:hover {
+  transform: scale(1.05) translateY(-8px);
+}
+
+.pricing-card__badge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--landing-accent-red);
+  color: var(--landing-surface);
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.pricing-card__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--landing-text-primary);
+  margin: 0 0 12px 0;
+}
+
+.pricing-card__price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pricing-card__amount {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--landing-accent-red);
+}
+
+.pricing-card__period {
+  font-size: 0.95rem;
+  color: var(--landing-text-secondary);
+}
+
+.pricing-card__description {
+  font-size: 0.95rem;
+  color: var(--landing-text-secondary);
+  margin: 0 0 24px 0;
+  line-height: 1.5;
+}
+
+.pricing-card__button {
+  background: var(--landing-btn-gradient);
+  color: var(--landing-surface);
+  border: none;
+  padding: 14px 32px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 32px;
+  transition: all 0.3s ease;
+}
+
+.pricing-card__button:hover {
+  opacity: 0.9;
+  transform: translateY(-2px);
+}
+
+.pricing-card--featured .pricing-card__button {
+  background: var(--landing-accent-red);
+}
+
+.pricing-card__features {
+  margin-bottom: 24px;
+  flex-grow: 1;
+}
+
+.pricing-card__features-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--landing-text-primary);
+  margin: 0 0 16px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pricing-card__features-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pricing-card__feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 0.95rem;
+  color: var(--landing-text-secondary);
+  line-height: 1.4;
+}
+
+.pricing-card__feature-icon {
+  color: var(--landing-accent-red);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.pricing-card__limitation {
+  border-top: 1px solid var(--landing-border);
+  padding-top: 16px;
+  font-size: 0.85rem;
+  color: var(--landing-text-secondary);
+}
+
+.pricing-card__limitation p {
+  margin: 0;
+}
+
+/* ============================================================
    Responsive Design - Additional Sections
    ============================================================ */
 @media (max-width: 1024px) {
@@ -869,5 +1052,26 @@
   .final-cta__button {
     width: 100%;
     padding: 16px 32px;
+  }
+
+  .pricing__title {
+    font-size: 2rem;
+  }
+
+  .pricing__grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .pricing-card--featured {
+    transform: scale(1);
+  }
+
+  .pricing-card--featured:hover {
+    transform: translateY(-8px);
+  }
+
+  .pricing-card {
+    padding: 32px 24px;
   }
 }
