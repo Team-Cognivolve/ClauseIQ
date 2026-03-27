@@ -93,8 +93,8 @@ export function LandingPage({ onEnterApp }) {
           <ul className="landing-nav__links">
             <li><a href="#product">PRODUCT</a></li>
             <li><a href="#intelligence">INTELLIGENCE</a></li>
-            <li><a href="#pricing">PRICING</a></li>
             <li><a href="#company">COMPANY</a></li>
+            <li><a href="#pricing">PRICING</a></li>
           </ul>
           <button className="landing-nav__cta" onClick={onEnterApp}>
             GET STARTED
