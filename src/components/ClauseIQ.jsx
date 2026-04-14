@@ -1,28 +1,39 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePDFExtractor } from '../hooks/usePDFExtractor';
-import { useWebLLM } from '../hooks/useWebLLM';
+import { useGitHubCopilot } from '../hooks/useGitHubCopilot';
 import {
-  buildClauseAnalysisPrompt,
   detectRiskByPattern,
   generateFallbackAnalysis,
   MAX_CONCURRENT_ANALYSES,
-  MODEL_LABEL,
-  MODEL_SIZE_LABEL,
 } from '../utils/constants';
 import {
   extractClauses,
   filterSubstantiveClauses,
-  batchClauses,
   normalizeClauseAnalysis,
   validateAndEnrichAnalysis,
 } from '../utils/rag';
 import './ClauseIQ.css';
 
+const COPILOT_MODEL_STORAGE_KEY = 'clauseiq_github_copilot_model';
+
+function readSessionValue(key, fallback = '') {
+  if (typeof window === 'undefined') return fallback;
+  return window.sessionStorage.getItem(key) || fallback;
+}
+
 export function ClauseIQ() {
   const pdf = usePDFExtractor();
-  const llm = useWebLLM();
+  const githubCopilot = useGitHubCopilot();
+  const {
+    analyzeClause: analyzeCopilotClause,
+    configurationError: copilotConfigurationError,
+    isAuthenticated: isCopilotAuthenticated,
+    isConfigured: isCopilotConfigured,
+  } = githubCopilot;
 
+  const [copilotModel, setCopilotModel] = useState(() => readSessionValue(COPILOT_MODEL_STORAGE_KEY, ''));
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState({ processed: 0, total: 0 });
   const [analysisError, setAnalysisError] = useState(null);
   const [results, setResults] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -30,154 +41,149 @@ export function ClauseIQ() {
   const inputRef = useRef(null);
   const didAnalyse = useRef(false);
 
-  // Calculate risk scores from results
-  const calculateRiskScores = () => {
-    if (!results || !Array.isArray(results) || results.length === 0) {
-      return { overall: 0, high: 0, medium: 0, low: 0, highCount: 0, mediumCount: 0, lowCount: 0 };
-    }
-
-    const high = results.filter(r => r.risk_level === 'High').length;
-    const medium = results.filter(r => r.risk_level === 'Medium').length;
-    const low = results.filter(r => r.risk_level === 'Low').length;
-    const total = results.length;
-
-    // Calculate percentages
-    const highPct = Math.round((high / total) * 100);
-    const mediumPct = Math.round((medium / total) * 100);
-    const lowPct = Math.round((low / total) * 100);
-
-    // Overall risk score (higher = more risky, 0-100 scale)
-    // Weight: High=100, Medium=50, Low=10
-    const overallScore = Math.round(((high * 100) + (medium * 50) + (low * 10)) / total);
-
-    return {
-      overall: overallScore,
-      high: highPct,
-      medium: mediumPct,
-      low: lowPct,
-      highCount: high,
-      mediumCount: medium,
-      lowCount: low
-    };
-  };
-
-  const riskScores = calculateRiskScores();
-
-  // ============================================================
-  // UNIVERSAL CLAUSE ANALYSIS - No Category Constraints
-  // ============================================================
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(COPILOT_MODEL_STORAGE_KEY, copilotModel);
+  }, [copilotModel]);
 
   useEffect(() => {
-    const canRun = pdf.status === 'done' && llm.modelState === 'ready' && !didAnalyse.current;
+    didAnalyse.current = false;
+    if (pdf.status === 'done') {
+      setResults(null);
+      setAnalysisError(null);
+    }
+  }, [copilotModel, isCopilotAuthenticated, pdf.status]);
+
+  const activeProvider = useMemo(() => ({
+    key: 'github-copilot',
+    label: 'GitHub Copilot',
+    modelName: copilotModel.trim() || 'Model required',
+    isConfigured: isCopilotConfigured && isCopilotAuthenticated && Boolean(copilotModel.trim()),
+    configurationError:
+      copilotConfigurationError ||
+      (!isCopilotAuthenticated
+        ? 'Authenticate with GitHub Copilot to continue.'
+        : (!copilotModel.trim() ? 'Type a GitHub Copilot model name to continue.' : null)),
+    analyzeClause: (clause) => analyzeCopilotClause(clause, copilotModel.trim()),
+  }), [
+    analyzeCopilotClause,
+    copilotModel,
+    copilotConfigurationError,
+    isCopilotAuthenticated,
+    isCopilotConfigured,
+  ]);
+
+  useEffect(() => {
+    const canRun = pdf.status === 'done' && !!pdf.text && activeProvider.isConfigured && !didAnalyse.current;
     if (!canRun) return;
 
     didAnalyse.current = true;
+    let cancelled = false;
 
     (async () => {
       setAnalyzing(true);
+      setAnalysisProgress({ processed: 0, total: 0 });
       setAnalysisError(null);
       setResults(null);
 
       try {
+        if (!activeProvider.isConfigured) {
+          throw new Error(activeProvider.configurationError || `${activeProvider.label} is not configured.`);
+        }
+
         const allClauses = extractClauses(pdf.text);
         const substantiveClauses = filterSubstantiveClauses(allClauses);
+        setAnalysisProgress({ processed: 0, total: substantiveClauses.length });
 
         if (substantiveClauses.length === 0) {
           setAnalysisError('No substantial clauses found in the contract.');
           return;
         }
 
-        const clauseBatches = batchClauses(substantiveClauses, 8);
+        const processClause = async (clause, index) => {
+          const patternResult = detectRiskByPattern(clause.cleanText || clause.text);
 
-        const processBatch = async (batch, batchIndex) => {
-          const patternResults = batch.map(clause => ({
-            clause,
-            patterns: detectRiskByPattern(clause.cleanText || clause.text),
-          }));
-
-          const userPrompt = buildClauseAnalysisPrompt(batch);
-
-          let llmAnalyses = [];
           try {
-            const llmResponse = await llm.analyze('', { userPrompt });
+            const apiResponse = await activeProvider.analyzeClause(clause);
+            const normalized = normalizeClauseAnalysis(apiResponse, clause);
 
-            if (Array.isArray(llmResponse)) {
-              llmAnalyses = llmResponse
-                .map((item, index) => normalizeClauseAnalysis(item, batch[index]))
-                .filter(item => item !== null);
+            if (normalized) {
+              const validated = validateAndEnrichAnalysis(normalized, clause, patternResult);
+              return { ...validated, _clauseId: clause.id };
             }
-          } catch (err) {
-            console.warn(`LLM analysis failed for batch ${batchIndex + 1}:`, err);
+          } catch (error) {
+            console.warn(`${activeProvider.label} analysis failed for clause ${index + 1}:`, error);
           }
 
-          const batchAnalyses = [];
-          for (let i = 0; i < batch.length; i++) {
-            const clause = batch[i];
-            const patternResult = patternResults[i].patterns;
-
-            let finalAnalysis;
-
-            if (llmAnalyses[i]) {
-              finalAnalysis = validateAndEnrichAnalysis(
-                llmAnalyses[i],
-                clause,
-                patternResult
-              );
-            } else {
-              finalAnalysis = generateFallbackAnalysis(clause, patternResult);
-            }
-
-            if (
-              finalAnalysis.risk_level !== 'Low' ||
-              (finalAnalysis.negotiation && finalAnalysis.negotiation.trim())
-            ) {
-              batchAnalyses.push(finalAnalysis);
-            }
-          }
-
-          return batchAnalyses;
+          return { ...generateFallbackAnalysis(clause, patternResult), _clauseId: clause.id };
         };
-
-        const processWithConcurrency = async (batches, concurrency) => {
-          const results = [];
-          for (let i = 0; i < batches.length; i += concurrency) {
-            const chunk = batches.slice(i, i + concurrency);
-            const batchPromises = chunk.map((batch, offset) =>
-              processBatch(batch, i + offset)
-            );
-            const chunkResults = await Promise.all(batchPromises);
-            results.push(...chunkResults.flat());
-          }
-          return results;
-        };
-
-        const allAnalyses = await processWithConcurrency(clauseBatches, MAX_CONCURRENT_ANALYSES);
 
         const seen = new Set();
-        const unique = allAnalyses.filter(analysis => {
+        const riskOrder = { High: 0, Medium: 1, Low: 2 };
+        const totalClauses = substantiveClauses.length;
+        let nextIndex = 0;
+        let visibleCount = 0;
+
+        const maybePublishAnalysis = (analysis) => {
+          const shouldShow = (
+            analysis.risk_level !== 'Low' ||
+            (analysis.negotiation && analysis.negotiation.trim())
+          );
+
+          if (!shouldShow) return;
+
           const key = (analysis.clause_text ?? '').slice(0, 100).toLowerCase();
-          if (seen.has(key)) return false;
+          if (seen.has(key)) return;
           seen.add(key);
-          return true;
-        });
+          visibleCount += 1;
 
-        const sorted = unique.sort((a, b) => {
-          const riskOrder = { High: 0, Medium: 1, Low: 2 };
-          return riskOrder[a.risk_level] - riskOrder[b.risk_level];
-        });
+          if (cancelled) return;
 
-        setResults(sorted);
-      } catch (err) {
-        setAnalysisError(err.message);
+          setResults((previous) => {
+            const existing = Array.isArray(previous) ? previous : [];
+            const next = [...existing, analysis].sort((a, b) => riskOrder[a.risk_level] - riskOrder[b.risk_level]);
+            return next;
+          });
+        };
+
+        const runWorker = async () => {
+          while (nextIndex < substantiveClauses.length) {
+            const currentIndex = nextIndex;
+            nextIndex += 1;
+
+            const analysis = await processClause(substantiveClauses[currentIndex], currentIndex);
+            maybePublishAnalysis(analysis);
+
+            if (!cancelled) {
+              setAnalysisProgress((previous) => ({
+                ...previous,
+                processed: Math.min(previous.processed + 1, totalClauses),
+              }));
+            }
+          }
+        };
+
+        const workerCount = Math.min(MAX_CONCURRENT_ANALYSES, substantiveClauses.length);
+        await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+
+        if (!cancelled && visibleCount === 0) {
+          setResults([]);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAnalysisError(error.message);
+        }
       } finally {
-        setAnalyzing(false);
+        if (!cancelled) {
+          setAnalyzing(false);
+        }
       }
     })();
-  }, [pdf.status, llm.modelState, pdf.text, llm.analyze]);
 
-  // ============================================================
-  // FILE HANDLING
-  // ============================================================
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProvider, pdf.status, pdf.text]);
 
   const handleFileSelect = (file) => {
     if (!file) return;
@@ -185,6 +191,7 @@ export function ClauseIQ() {
       alert('Only PDF files are accepted.');
       return;
     }
+
     didAnalyse.current = false;
     setResults(null);
     setAnalysisError(null);
@@ -196,24 +203,37 @@ export function ClauseIQ() {
     inputRef.current?.click();
   };
 
-  const handleFileChange = (e) => {
-    handleFileSelect(e.target.files[0]);
-    e.target.value = '';
+  const handleFileChange = (event) => {
+    handleFileSelect(event.target.files[0]);
+    event.target.value = '';
   };
 
-  // ============================================================
-  // DERIVED STATE
-  // ============================================================
+  const calculateRiskScores = () => {
+    if (!results || !Array.isArray(results) || results.length === 0) {
+      return { overall: 0, high: 0, medium: 0, low: 0, highCount: 0, mediumCount: 0, lowCount: 0 };
+    }
 
-  const isModelLoading = llm.modelState === 'loading';
-  const isModelReady = llm.modelState === 'ready';
-  const isModelError = llm.modelState === 'error';
+    const high = results.filter((result) => result.risk_level === 'High').length;
+    const medium = results.filter((result) => result.risk_level === 'Medium').length;
+    const low = results.filter((result) => result.risk_level === 'Low').length;
+    const total = results.length;
+
+    return {
+      overall: Math.round(((high * 100) + (medium * 50) + (low * 10)) / total),
+      high: Math.round((high / total) * 100),
+      medium: Math.round((medium / total) * 100),
+      low: Math.round((low / total) * 100),
+      highCount: high,
+      mediumCount: medium,
+      lowCount: low,
+    };
+  };
+
+  const riskScores = calculateRiskScores();
   const isExtracting = pdf.status === 'extracting';
   const isPdfDone = pdf.status === 'done';
-  const hasResults = results && Array.isArray(results) && results.length > 0;
-  const { percent = 0, text = '' } = llm.loadProgress || {};
+  const hasResults = Array.isArray(results) && results.length > 0;
 
-  // Get risk health label
   const getRiskHealthLabel = () => {
     if (!hasResults) return 'No Data';
     if (riskScores.overall >= 70) return 'High Risk';
@@ -228,9 +248,61 @@ export function ClauseIQ() {
     return '#5F614A';
   };
 
+  const renderGitHubCopilotControls = () => (
+    <div className="provider-card__section">
+      <label className="provider-card__label" htmlFor="copilot-model">GitHub Copilot Model</label>
+      <input
+        id="copilot-model"
+        className="provider-card__input"
+        type="text"
+        value={copilotModel}
+        onChange={(event) => setCopilotModel(event.target.value)}
+        placeholder="e.g. gpt-4.1"
+      />
+
+      {githubCopilot.isAuthenticated ? (
+        <div className="provider-status provider-status--success">
+          <span>GitHub Copilot is authenticated for this browser session.</span>
+          <button type="button" className="provider-inline-btn" onClick={githubCopilot.disconnect}>
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="provider-auth-btn"
+            onClick={githubCopilot.startAuth}
+            disabled={!githubCopilot.isConfigured || githubCopilot.isAuthorizing}
+          >
+            {githubCopilot.isAuthorizing ? 'Waiting for GitHub...' : 'Connect GitHub Copilot'}
+          </button>
+
+          {githubCopilot.deviceAuth.status === 'waiting' && (
+            <div className="device-auth-card">
+              <span className="device-auth-card__label">Enter this code on GitHub</span>
+              <span className="device-auth-card__code">{githubCopilot.deviceAuth.userCode}</span>
+              <a
+                className="device-auth-card__link"
+                href={githubCopilot.deviceAuth.verificationUri}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open github.com/login/device
+              </a>
+            </div>
+          )}
+        </>
+      )}
+
+      {githubCopilot.deviceAuth.error && (
+        <p className="provider-card__error">{githubCopilot.deviceAuth.error}</p>
+      )}
+    </div>
+  );
+
   return (
     <div className="analysis-page">
-      {/* Top Navigation */}
       <nav className="analysis-nav">
         <div className="analysis-nav__container">
           <div className="analysis-nav__logo">ClauseIQ</div>
@@ -238,15 +310,12 @@ export function ClauseIQ() {
       </nav>
 
       <div className="analysis-content">
-        {/* Left Panel - Risk Score */}
         <aside className="analysis-sidebar">
           <div className="risk-panel">
             <h2 className="risk-panel__title">Risk Score Health</h2>
 
-            {/* Circular Gauge */}
             <div className="risk-gauge">
               <svg className="risk-gauge__svg" viewBox="0 0 200 200">
-                {/* Background circle */}
                 <circle
                   className="risk-gauge__bg"
                   cx="100"
@@ -256,7 +325,6 @@ export function ClauseIQ() {
                   stroke="#E5E1D6"
                   strokeWidth="12"
                 />
-                {/* Progress circle */}
                 <circle
                   className="risk-gauge__progress"
                   cx="100"
@@ -276,7 +344,6 @@ export function ClauseIQ() {
               </div>
             </div>
 
-            {/* Risk Bars */}
             <div className="risk-bars">
               <div className="risk-bar">
                 <div className="risk-bar__header">
@@ -321,7 +388,19 @@ export function ClauseIQ() {
               </div>
             </div>
 
-            {/* Audit Button */}
+            <section className="provider-card">
+              <div className="provider-card__header">
+                <h3 className="provider-card__title">AI Provider</h3>
+                <span className="provider-card__active">GitHub Copilot</span>
+              </div>
+
+              {renderGitHubCopilotControls()}
+
+              {activeProvider.configurationError && (
+                <p className="provider-card__error">{activeProvider.configurationError}</p>
+              )}
+            </section>
+
             <input
               ref={inputRef}
               type="file"
@@ -342,44 +421,15 @@ export function ClauseIQ() {
           </div>
         </aside>
 
-        {/* Right Panel - Main Content */}
         <main className="analysis-main">
-          {/* Model Loading Section */}
-          {isModelLoading && (
-            <div className="model-loader-card">
-              <div className="model-loader-card__header">
-                <span className="model-loader-card__status">INITIALIZING AI</span>
-                <span className="model-loader-card__name">{MODEL_LABEL}</span>
-              </div>
-              <div className="model-loader-card__progress">
-                <div className="model-loader-card__track">
-                  <div
-                    className="model-loader-card__fill"
-                    style={{ width: `${percent}%` }}
-                  />
-                </div>
-                <div className="model-loader-card__meta">
-                  <span className="model-loader-card__text">{text || 'Starting...'}</span>
-                  <span className="model-loader-card__pct">{percent}%</span>
-                </div>
-              </div>
-              <p className="model-loader-card__note">
-                Downloading {MODEL_SIZE_LABEL} of model weights to your browser cache.
-                Subsequent visits will be instant - everything runs 100% locally.
-              </p>
-            </div>
-          )}
-
-          {/* Model Error */}
-          {isModelError && (
+          {!activeProvider.isConfigured && activeProvider.configurationError && (
             <div className="error-card">
               <span className="error-card__icon">!</span>
-              <span className="error-card__text">Model failed to load. Try refreshing the page.</span>
+              <span className="error-card__text">{activeProvider.configurationError}</span>
             </div>
           )}
 
-          {/* Model Ready Status */}
-          {isModelReady && !isPdfDone && !analyzing && !hasResults && (
+          {!isPdfDone && !analyzing && !hasResults && (
             <div className="ready-card">
               <div className="ready-card__icon">
                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -387,14 +437,16 @@ export function ClauseIQ() {
                   <circle cx="12" cy="12" r="10" />
                 </svg>
               </div>
-              <h3 className="ready-card__title">AI Model Ready</h3>
+              <h3 className="ready-card__title">Provider Ready</h3>
               <p className="ready-card__text">
-                Upload a PDF contract using the "Audit Files" button to begin analysis.
+                Upload a PDF contract to analyze clauses with
+                <strong> {activeProvider.label}</strong>
+                {' '}using
+                <strong> {activeProvider.modelName}</strong>.
               </p>
             </div>
           )}
 
-          {/* Extracting State */}
           {isExtracting && (
             <div className="status-card">
               <div className="status-card__spinner" />
@@ -402,25 +454,22 @@ export function ClauseIQ() {
             </div>
           )}
 
-          {/* Waiting for Model */}
-          {isPdfDone && isModelLoading && (
-            <div className="status-card status-card--waiting">
+          {analyzing && (
+            <div className="status-card status-card--analyzing">
               <div className="status-card__spinner" />
               <span className="status-card__text">
-                Waiting for the AI model to finish loading before analysing...
+                Analysing clauses with {activeProvider.label}... ({analysisProgress.processed}/{analysisProgress.total})
               </span>
             </div>
           )}
 
-          {/* Analyzing State */}
-          {analyzing && (
-            <div className="status-card status-card--analyzing">
-              <div className="status-card__spinner" />
-              <span className="status-card__text">Analysing contract for red flags...</span>
+          {pdf.error && isPdfDone && (
+            <div className="error-card">
+              <span className="error-card__icon">!</span>
+              <span className="error-card__text">{pdf.error}</span>
             </div>
           )}
 
-          {/* Analysis Error */}
           {analysisError && (
             <div className="error-card">
               <span className="error-card__icon">!</span>
@@ -428,11 +477,10 @@ export function ClauseIQ() {
             </div>
           )}
 
-          {/* Results Section */}
           {hasResults && (
             <div className="clauses-section">
               <div className="clauses-header">
-                <h2 className="clauses-header__title">Analysis Complete</h2>
+                <h2 className="clauses-header__title">{analyzing ? 'Analysis In Progress' : 'Analysis Complete'}</h2>
                 <div className="clauses-header__summary">
                   {riskScores.highCount > 0 && (
                     <span className="summary-badge summary-badge--high">
@@ -454,14 +502,13 @@ export function ClauseIQ() {
 
               <div className="clauses-list">
                 {results.map((item, idx) => (
-                  <ClauseCard key={`${item.clause_type}-${idx}`} item={item} index={idx} />
+                  <ClauseCard key={item._clauseId || `${item.clause_type}-${idx}`} item={item} />
                 ))}
               </div>
             </div>
           )}
 
-          {/* No Results */}
-          {results && Array.isArray(results) && results.length === 0 && (
+          {Array.isArray(results) && results.length === 0 && (
             <div className="no-issues-card">
               <div className="no-issues-card__icon">
                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -482,8 +529,7 @@ export function ClauseIQ() {
   );
 }
 
-// Clause Card Component
-function ClauseCard({ item, index }) {
+function ClauseCard({ item }) {
   const [open, setOpen] = useState(false);
 
   const riskConfig = {
@@ -498,7 +544,7 @@ function ClauseCard({ item, index }) {
     <article className={`clause-card ${risk.cls}`}>
       <button
         className="clause-card__header"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
       >
         <div className="clause-card__badges">
@@ -511,24 +557,66 @@ function ClauseCard({ item, index }) {
       </button>
 
       <blockquote className="clause-card__excerpt">
-        "{item.clause_text}"
+        &ldquo;
+        <TypingText as="span" text={item.clause_text} className="typing-inline" speed={10} />
+        &rdquo;
       </blockquote>
 
       {open && (
         <div className="clause-card__detail">
           <div className="detail-section">
             <h4 className="detail-section__heading">What This Means</h4>
-            <p>{item.explanation}</p>
+            <TypingText text={item.explanation} speed={14} />
           </div>
 
           {item.negotiation && String(item.negotiation).trim() && (
             <div className="detail-section detail-section--suggestion">
               <h4 className="detail-section__heading">Negotiation</h4>
-              <p>{item.negotiation}</p>
+              <TypingText text={item.negotiation} speed={14} />
             </div>
           )}
         </div>
       )}
     </article>
+  );
+}
+
+function TypingText({ text, className = '', as: asTag = 'p', speed = 16 }) {
+  const safeText = String(text || '');
+  const [visibleChars, setVisibleChars] = useState(0);
+
+  useEffect(() => {
+    setVisibleChars(0);
+
+    if (!safeText) return undefined;
+
+    const tickMs = Math.max(8, speed);
+    const step = Math.max(1, Math.ceil(safeText.length / 80));
+    let current = 0;
+
+    const timer = window.setInterval(() => {
+      current = Math.min(current + step, safeText.length);
+      setVisibleChars(current);
+
+      if (current >= safeText.length) {
+        window.clearInterval(timer);
+      }
+    }, tickMs);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [safeText, speed]);
+
+  const done = visibleChars >= safeText.length;
+  const shownText = safeText.slice(0, visibleChars);
+
+  return React.createElement(
+    asTag,
+    { className },
+    <>
+      {shownText}
+      {!done && <span className="typing-caret" aria-hidden>|</span>}
+    </>,
   );
 }

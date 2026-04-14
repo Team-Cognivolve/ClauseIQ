@@ -10,11 +10,11 @@ const pricingPlans = [
     price: "₹0",
     description: "Perfect for students and first-time interns.",
     features: [
-      "On-device WebLLM Analysis",
+      "GitHub Copilot Analysis",
       "Clause Extraction",
       "Basic Negotiation Tips",
       "Export Results (PDF/Text)",
-      "100% Privacy (Zero-Egress)",
+      "Copilot Device Login",
     ],
     limitations: "Slower processing, 5-page PDF limit",
     buttonText: "Get Started",
@@ -261,8 +261,8 @@ export function LandingPage({ onEnterApp }) {
               <li className="curation__item">
                 <span className="curation__number">01</span>
                 <div className="curation__item-content">
-                  <h4>Privacy-First Architecture</h4>
-                  <p>All processing happens locally in your browser. Your documents never leave your device.</p>
+                  <h4>API-Backed Analysis</h4>
+                  <p>Contracts are parsed in the browser, then analyzed through GitHub Copilot via the local backend service.</p>
                 </div>
               </li>
               <li className="curation__item">
@@ -276,7 +276,7 @@ export function LandingPage({ onEnterApp }) {
                 <span className="curation__number">03</span>
                 <div className="curation__item-content">
                   <h4>Instant Results</h4>
-                  <p>Complete clause analysis in under 2 seconds. No waiting, no API calls.</p>
+                  <p>Fast clause-by-clause analysis with structured API responses and fallback risk heuristics.</p>
                 </div>
               </li>
             </ul>

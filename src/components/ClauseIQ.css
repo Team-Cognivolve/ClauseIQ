@@ -652,6 +652,29 @@
   background: var(--analysis-surface-alt);
 }
 
+.typing-inline {
+  display: inline;
+}
+
+.typing-caret {
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--analysis-accent-olive);
+  animation: typingBlink 1s steps(1, end) infinite;
+}
+
+@keyframes typingBlink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
 .clause-card__detail {
   padding: 20px;
   display: flex;
@@ -805,5 +828,153 @@
 
   .clause-card__detail {
     padding: 16px;
+  }
+}
+
+/* ============================================================
+   Provider Controls
+   ============================================================ */
+.provider-card {
+  margin-bottom: 24px;
+  padding: 18px;
+  background: var(--analysis-surface-alt);
+  border: 1px solid var(--analysis-border);
+  border-radius: 12px;
+}
+
+.provider-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.provider-card__title {
+  margin: 0;
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.provider-card__active {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--analysis-accent-olive);
+}
+
+.provider-switcher {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.provider-switcher__btn,
+.provider-auth-btn,
+.provider-inline-btn {
+  border: 1px solid var(--analysis-border);
+  background: #fff;
+  color: var(--analysis-text-primary);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.provider-switcher__btn--active {
+  background: var(--analysis-text-primary);
+  color: #fff;
+}
+
+.provider-card__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.provider-card__text,
+.provider-card__error,
+.provider-status {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.provider-card__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--analysis-text-secondary);
+}
+
+.provider-card__input {
+  width: 100%;
+  border: 1px solid var(--analysis-border);
+  background: #fff;
+  color: var(--analysis-text-primary);
+  border-radius: 8px;
+  padding: 11px 12px;
+  font-size: 0.85rem;
+}
+
+.provider-card__error {
+  color: var(--analysis-accent-red);
+}
+
+.provider-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(95, 97, 74, 0.08);
+  border: 1px solid rgba(95, 97, 74, 0.16);
+  color: var(--analysis-text-primary);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.device-auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(45, 45, 45, 0.04);
+  border: 1px dashed var(--analysis-border);
+}
+
+.device-auth-card__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--analysis-text-secondary);
+}
+
+.device-auth-card__code {
+  font-family: 'Liberation Mono', monospace;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--analysis-text-primary);
+}
+
+.device-auth-card__link {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--analysis-accent-red);
+  text-decoration: none;
+}
+
+@media (max-width: 900px) {
+  .provider-card__header,
+  .provider-status {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
