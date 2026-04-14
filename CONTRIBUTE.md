@@ -11,7 +11,7 @@ Branch Strategy
 
 - main → Stable milestone / submission branch
 - prototype → IA-1 development branch (Frozen after IA-1 submission)
-- dev → IA-2 ongoing full project development
+- ia-2 → IA-2 ongoing full project development
 - feature/* → Individual task branches
 
 --------------------------------------------------
@@ -20,23 +20,14 @@ Important Rules
 
 - Do NOT push directly to main
 - Do NOT push directly to prototype or dev
-- Always create a new feature branch for any task
-
-Branch Naming Format:
-
-feature/<task>
-
-Examples:
-- feature/clause-analysis
-- feature/navbar-ui
-- feature/db-schema
+- Work in ia-2 branch for any task
 
 --------------------------------------------------
 
 👨‍💻 Development Workflow
 
 1. Clone the repository
-2. Checkout the correct base branch (prototype for IA-1 or dev for IA-2)
+2. Checkout the correct base branch (prototype for IA-1 or ia-2 for IA-2)
 3. Pull latest changes
 4. Create a feature branch
 5. Implement the task
@@ -69,7 +60,7 @@ Before creating Pull Request:
 
 - IA-1 development happens in prototype branch
 - After IA-1 submission, prototype branch will be frozen
-- IA-2 development will continue in dev branch
+- IA-2 development will continue in ia-2 branch
 - Final stable version will be merged into main
 
 --------------------------------------------------
