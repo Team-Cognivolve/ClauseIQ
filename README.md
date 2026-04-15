@@ -37,12 +37,16 @@ Create `.env` in the project root:
 GITHUB_COPILOT_CLIENT_ID=your_github_oauth_app_client_id_here
 GITHUB_COPILOT_DEVICE_SCOPE=read:user
 COPILOT_SERVER_PORT=8787
+MONGODB_URI=your_mongodb_uri_here
+JWT_SECRET=your_jwt_secret_here
 ```
 
 Notes:
 
 - `GITHUB_COPILOT_CLIENT_ID` is required for device flow.
 - The GitHub OAuth app must support device authorization.
+- `MONGODB_URI` must be a valid MongoDB Atlas connection string.
+- `JWT_SECRET` should be a strong secret (minimum 16 characters).
 - Copilot model names are entered in the frontend, not in `.env`.
 
 ## Local Development
