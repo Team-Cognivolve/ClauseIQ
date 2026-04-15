@@ -16,10 +16,104 @@ import './ClauseIQ.css';
 
 const DEFAULT_COPILOT_MODEL = 'gpt-4.1';
 const COPILOT_MODEL_STORAGE_KEY = 'clauseiq_github_copilot_model';
+const HISTORY_STORAGE_KEY = 'clauseiq_analysis_history_v1';
+const HISTORY_LIMIT = 50;
+const MENU_VIEW = {
+  WORKSPACE: 'workspace',
+  HISTORY: 'history',
+  HISTORY_DETAIL: 'history-detail',
+};
+const HISTORY_RISK_FILTERS = ['All', 'High', 'Medium', 'Low'];
 
 function readSessionValue(key, fallback = '') {
   if (typeof window === 'undefined') return fallback;
   return window.sessionStorage.getItem(key) || fallback;
+}
+
+async function fetchHistoryFromServer() {
+  const response = await fetch('/api/history', {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to load history from server.');
+  }
+
+  const payload = await response.json().catch(() => null);
+  return Array.isArray(payload?.entries) ? payload.entries : [];
+}
+
+async function saveHistoryToServer(entry) {
+  const response = await fetch('/api/history', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify({ entry }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to save history to server.');
+  }
+}
+
+function getHistoryUserKey(userId) {
+  return userId ? `user:${userId}` : 'user:anonymous';
+}
+
+function readHistoryEntries(userId) {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return [];
+    const entries = parsed[getHistoryUserKey(userId)];
+    return Array.isArray(entries) ? entries : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeHistoryEntries(userId, entries) {
+  if (typeof window === 'undefined') return;
+
+  let parsed = {};
+  try {
+    parsed = JSON.parse(window.localStorage.getItem(HISTORY_STORAGE_KEY) || '{}');
+  } catch {
+    parsed = {};
+  }
+
+  parsed[getHistoryUserKey(userId)] = entries;
+  window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(parsed));
+}
+
+function getOverallRisk(summary) {
+  if ((summary?.high || 0) > 0) return 'High';
+  if ((summary?.medium || 0) > 0) return 'Medium';
+  return 'Low';
+}
+
+function formatRelativeTime(isoTime) {
+  const ts = new Date(isoTime).getTime();
+  if (!Number.isFinite(ts)) return 'Unknown';
+
+  const diffMs = Date.now() - ts;
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes <= 0) return 'Just now';
+  if (minutes < 60) return `${minutes} min ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+
+  return new Date(isoTime).toLocaleDateString();
 }
 
 const DOCUMENT_TOPICS = [
@@ -78,7 +172,7 @@ function buildDocumentInsights(text) {
   return insights;
 }
 
-export function ClauseIQ({ onSignOut, onBackToLanding }) {
+export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const pdf = usePDFExtractor();
   const githubCopilot = useGitHubCopilot();
   const {
@@ -98,16 +192,58 @@ export function ClauseIQ({ onSignOut, onBackToLanding }) {
   const [analysisError, setAnalysisError] = useState(null);
   const [results, setResults] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [activeView, setActiveView] = useState(MENU_VIEW.WORKSPACE);
+  const [analysisHistory, setAnalysisHistory] = useState([]);
+  const [historyReady, setHistoryReady] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyRiskFilter, setHistoryRiskFilter] = useState('All');
+  const [selectedHistoryId, setSelectedHistoryId] = useState(null);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   const inputRef = useRef(null);
   const didAnalyse = useRef(false);
+  const activeRunId = useRef(0);
+  const savedRunId = useRef(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     window.sessionStorage.setItem(COPILOT_MODEL_STORAGE_KEY, copilotModel);
   }, [copilotModel]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadHistory = async () => {
+      const localEntries = readHistoryEntries(user?.id);
+
+      try {
+        const serverEntries = await fetchHistoryFromServer();
+        if (cancelled) return;
+        setAnalysisHistory(serverEntries);
+        setSelectedHistoryId(serverEntries[0]?.id || null);
+      } catch {
+        if (cancelled) return;
+        setAnalysisHistory(localEntries);
+        setSelectedHistoryId(localEntries[0]?.id || null);
+      } finally {
+        if (!cancelled) {
+          setHistoryReady(true);
+        }
+      }
+    };
+
+    loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!historyReady) return;
+    writeHistoryEntries(user?.id, analysisHistory);
+  }, [analysisHistory, historyReady, user?.id]);
 
   useEffect(() => {
     didAnalyse.current = false;
@@ -234,9 +370,12 @@ export function ClauseIQ({ onSignOut, onBackToLanding }) {
     }
 
     didAnalyse.current = false;
+    activeRunId.current += 1;
+    savedRunId.current = null;
     setResults(null);
     setAnalysisError(null);
     setSelectedFile(file);
+    setActiveView(MENU_VIEW.WORKSPACE);
     pdf.extractText(file);
   };
 
@@ -294,6 +433,90 @@ export function ClauseIQ({ onSignOut, onBackToLanding }) {
   const hasResults = Array.isArray(results) && results.length > 0;
   const isExtracting = pdf.status === 'extracting';
   const isPdfDone = pdf.status === 'done';
+
+  useEffect(() => {
+    const canSave =
+      isPdfDone &&
+      !analyzing &&
+      Boolean(selectedFile) &&
+      Array.isArray(results);
+
+    if (!canSave) return;
+
+    const runId = activeRunId.current;
+    if (!runId || savedRunId.current === runId) return;
+
+    const safeResults = results.map((item, index) => ({
+      _clauseId: item?._clauseId || `${runId}-${index}`,
+      clause_type: String(item?.clause_type || 'General Clause'),
+      clause_text: String(item?.clause_text || ''),
+      explanation: String(item?.explanation || ''),
+      negotiation: String(item?.negotiation || ''),
+      risk_level: ['High', 'Medium', 'Low'].includes(item?.risk_level) ? item.risk_level : 'Medium',
+    }));
+
+    const summary = {
+      high: safeResults.filter((result) => result.risk_level === 'High').length,
+      medium: safeResults.filter((result) => result.risk_level === 'Medium').length,
+      low: safeResults.filter((result) => result.risk_level === 'Low').length,
+    };
+
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fileName: selectedFile.name,
+      analyzedAt: new Date().toISOString(),
+      summary: {
+        ...summary,
+        overallRisk: getOverallRisk(summary),
+      },
+      results: safeResults,
+      insights: keyInsights,
+    };
+
+    setAnalysisHistory((previous) => [entry, ...previous].slice(0, HISTORY_LIMIT));
+    setSelectedHistoryId(entry.id);
+    savedRunId.current = runId;
+
+    saveHistoryToServer(entry).catch((error) => {
+      console.error('Failed to persist history entry to server:', error);
+    });
+  }, [analyzing, isPdfDone, keyInsights, results, selectedFile]);
+
+  const analyzedHistory = useMemo(
+    () => analysisHistory.filter((item) => Array.isArray(item?.results)),
+    [analysisHistory],
+  );
+
+  const historyStats = useMemo(() => ({
+    total: analyzedHistory.length,
+    high: analyzedHistory.filter((item) => item.summary?.overallRisk === 'High').length,
+    medium: analyzedHistory.filter((item) => item.summary?.overallRisk === 'Medium').length,
+    low: analyzedHistory.filter((item) => item.summary?.overallRisk === 'Low').length,
+  }), [analyzedHistory]);
+
+  const filteredHistory = useMemo(() => {
+    const query = historySearch.trim().toLowerCase();
+    return analyzedHistory.filter((item) => {
+      const matchesQuery = !query || String(item.fileName || '').toLowerCase().includes(query);
+      const matchesRisk = historyRiskFilter === 'All' || item.summary?.overallRisk === historyRiskFilter;
+      return matchesQuery && matchesRisk;
+    });
+  }, [analyzedHistory, historyRiskFilter, historySearch]);
+
+  useEffect(() => {
+    if (filteredHistory.length === 0) {
+      setSelectedHistoryId(null);
+      return;
+    }
+    if (!filteredHistory.some((item) => item.id === selectedHistoryId)) {
+      setSelectedHistoryId(filteredHistory[0].id);
+    }
+  }, [filteredHistory, selectedHistoryId]);
+
+  const selectedHistoryEntry = useMemo(
+    () => analyzedHistory.find((item) => item.id === selectedHistoryId) || null,
+    [analyzedHistory, selectedHistoryId],
+  );
 
   const renderUploadBox = () => (
     <div
@@ -405,6 +628,162 @@ export function ClauseIQ({ onSignOut, onBackToLanding }) {
     </section>
   );
 
+  const renderHistoryView = () => (
+    <section className="workspace-history-view">
+      <header className="workspace-header">
+        <h1 className="workspace-header__title">Review History</h1>
+        <p className="workspace-header__subtitle">Access your previous contract reviews and reopen the full analysis</p>
+      </header>
+
+      <section className="history-stats-grid">
+        <article className="history-stat-card">
+          <p className="history-stat-card__label">Total Reviews</p>
+          <p className="history-stat-card__value">{historyStats.total}</p>
+        </article>
+        <article className="history-stat-card history-stat-card--high">
+          <p className="history-stat-card__label">High Risk</p>
+          <p className="history-stat-card__value">{historyStats.high}</p>
+        </article>
+        <article className="history-stat-card history-stat-card--medium">
+          <p className="history-stat-card__label">Medium Risk</p>
+          <p className="history-stat-card__value">{historyStats.medium}</p>
+        </article>
+        <article className="history-stat-card history-stat-card--low">
+          <p className="history-stat-card__label">Low Risk</p>
+          <p className="history-stat-card__value">{historyStats.low}</p>
+        </article>
+      </section>
+
+      <section className="history-toolbar">
+        <input
+          type="search"
+          className="history-toolbar__search"
+          placeholder="Search contracts..."
+          value={historySearch}
+          onChange={(event) => setHistorySearch(event.target.value)}
+        />
+        <div className="history-toolbar__filters">
+          {HISTORY_RISK_FILTERS.map((filter) => (
+            <button
+              type="button"
+              key={filter}
+              className={`history-filter-btn ${historyRiskFilter === filter ? 'history-filter-btn--active' : ''}`}
+              onClick={() => setHistoryRiskFilter(filter)}
+            >
+              {filter}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {filteredHistory.length === 0 ? (
+        <div className="no-issues-card">
+          <h3 className="no-issues-card__title">No Reviews Yet</h3>
+          <p className="no-issues-card__text">Analyze a PDF from Workspace to build your review history.</p>
+        </div>
+      ) : (
+        <div className="history-list">
+          {filteredHistory.map((entry) => (
+            <button
+              type="button"
+              key={entry.id}
+              className={`history-item ${selectedHistoryId === entry.id ? 'history-item--active' : ''}`}
+              onClick={() => {
+                setSelectedHistoryId(entry.id);
+                setActiveView(MENU_VIEW.HISTORY_DETAIL);
+              }}
+            >
+              <div className="history-item__main">
+                <p className="history-item__name">{entry.fileName}</p>
+                <div className="history-item__meta">
+                  <span className="history-item__time">{formatRelativeTime(entry.analyzedAt)}</span>
+                  <span className={`history-item__risk history-item__risk--${String(entry.summary?.overallRisk || 'Low').toLowerCase()}`}>
+                    {entry.summary?.overallRisk || 'Low'} Risk
+                  </span>
+                </div>
+                <div className="history-item__counts">
+                  <span className="history-item__count history-item__count--high">H {entry.summary?.high || 0}</span>
+                  <span className="history-item__count history-item__count--medium">M {entry.summary?.medium || 0}</span>
+                  <span className="history-item__count history-item__count--low">L {entry.summary?.low || 0}</span>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+    </section>
+  );
+
+  const renderHistoryDetailView = () => {
+    if (!selectedHistoryEntry) {
+      return (
+        <section className="workspace-history-view">
+          <header className="workspace-header">
+            <h1 className="workspace-header__title">Review Details</h1>
+            <p className="workspace-header__subtitle">The selected analysis could not be found.</p>
+          </header>
+          <button type="button" className="history-detail__back" onClick={() => setActiveView(MENU_VIEW.HISTORY)}>
+            Back to History
+          </button>
+        </section>
+      );
+    }
+
+    return (
+      <section className="workspace-history-view history-detail-page">
+        <header className="workspace-header">
+          <h1 className="workspace-header__title">Review Details</h1>
+          <p className="workspace-header__subtitle">Clause-level analysis for this contract</p>
+        </header>
+
+        <button type="button" className="history-detail__back" onClick={() => setActiveView(MENU_VIEW.HISTORY)}>
+          Back to History
+        </button>
+
+        <section className="file-summary-card">
+          <div className="file-summary-card__head">
+            <div>
+              <h2 className="file-summary-card__name">{selectedHistoryEntry.fileName}</h2>
+              <p className="file-summary-card__meta">Analyzed {formatRelativeTime(selectedHistoryEntry.analyzedAt)}</p>
+            </div>
+          </div>
+
+          <div className="risk-count-grid">
+            <div className="risk-count risk-count--high">
+              <span className="risk-count__label">High Risk</span>
+              <strong className="risk-count__value">{selectedHistoryEntry.summary?.high || 0}</strong>
+            </div>
+            <div className="risk-count risk-count--medium">
+              <span className="risk-count__label">Medium Risk</span>
+              <strong className="risk-count__value">{selectedHistoryEntry.summary?.medium || 0}</strong>
+            </div>
+            <div className="risk-count risk-count--low">
+              <span className="risk-count__label">Low Risk</span>
+              <strong className="risk-count__value">{selectedHistoryEntry.summary?.low || 0}</strong>
+            </div>
+          </div>
+        </section>
+
+        {Array.isArray(selectedHistoryEntry.results) && selectedHistoryEntry.results.length > 0 ? (
+          <section className="risk-analysis-section">
+            <h2 className="risk-analysis-section__title">Risk Analysis</h2>
+            <div className="clauses-list">
+              {selectedHistoryEntry.results.map((item, index) => (
+                <ClauseCard key={item._clauseId || `${item.clause_type}-${index}`} item={item} />
+              ))}
+            </div>
+          </section>
+        ) : (
+          <div className="no-issues-card">
+            <h3 className="no-issues-card__title">No Concerns Found</h3>
+            <p className="no-issues-card__text">No concerning clauses were identified in this contract.</p>
+          </div>
+        )}
+      </section>
+    );
+  };
+
   return (
     <div className="workspace-page">
       <aside className="workspace-sidebar">
@@ -415,8 +794,20 @@ export function ClauseIQ({ onSignOut, onBackToLanding }) {
         </div>
 
         <div className="workspace-menu">
-          <button type="button" className="workspace-menu__item workspace-menu__item--active">Workspace</button>
-          <button type="button" className="workspace-menu__item">History</button>
+          <button
+            type="button"
+            className={`workspace-menu__item ${activeView === MENU_VIEW.WORKSPACE ? 'workspace-menu__item--active' : ''}`}
+            onClick={() => setActiveView(MENU_VIEW.WORKSPACE)}
+          >
+            Workspace
+          </button>
+          <button
+            type="button"
+            className={`workspace-menu__item ${[MENU_VIEW.HISTORY, MENU_VIEW.HISTORY_DETAIL].includes(activeView) ? 'workspace-menu__item--active' : ''}`}
+            onClick={() => setActiveView(MENU_VIEW.HISTORY)}
+          >
+            History
+          </button>
         </div>
 
         <div className="workspace-sidebar__spacer" />
@@ -434,8 +825,8 @@ export function ClauseIQ({ onSignOut, onBackToLanding }) {
         </div>
       </aside>
 
-      <main className={`workspace-content ${hasUploadedFile ? 'workspace-content--uploaded' : ''}`}>
-        {!hasUploadedFile ? (
+      <main className={`workspace-content ${activeView === MENU_VIEW.WORKSPACE && hasUploadedFile ? 'workspace-content--uploaded' : ''}`}>
+        {activeView === MENU_VIEW.HISTORY ? renderHistoryView() : activeView === MENU_VIEW.HISTORY_DETAIL ? renderHistoryDetailView() : !hasUploadedFile ? (
           <section className="workspace-upload-view">
             <header className="workspace-header">
               <h1 className="workspace-header__title">Contract Review</h1>
@@ -498,7 +889,11 @@ export function ClauseIQ({ onSignOut, onBackToLanding }) {
 
               {isExtracting && <div className="analysis-status">Extracting text from PDF...</div>}
 
-              {analyzing && <div className="analysis-status">Analyzing contract for risk clauses...</div>}
+              {analyzing && (
+                <div className="analysis-status">
+                  Analyzing contract for risk clauses... ({analysisProgress.processed}/{analysisProgress.total})
+                </div>
+              )}
 
               {hasResults && (
                 <section className="risk-analysis-section">

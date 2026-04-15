@@ -36,6 +36,109 @@ const userSchema = new mongoose.Schema(
 );
 
 const User = mongoose.models.User || mongoose.model('User', userSchema);
+const HISTORY_LIMIT = 50;
+const HISTORY_RISK_LEVELS = new Set(['High', 'Medium', 'Low']);
+
+const reviewHistorySchema = new mongoose.Schema(
+  {
+    userId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    entryId: { type: String, required: true, trim: true, maxlength: 80 },
+    fileName: { type: String, required: true, trim: true, maxlength: 260 },
+    analyzedAt: { type: Date, required: true },
+    summary: {
+      high: { type: Number, required: true, min: 0 },
+      medium: { type: Number, required: true, min: 0 },
+      low: { type: Number, required: true, min: 0 },
+      overallRisk: { type: String, required: true, enum: ['High', 'Medium', 'Low'] },
+    },
+    results: [
+      {
+        _clauseId: { type: String, default: '' },
+        clause_type: { type: String, required: true, default: 'General Clause' },
+        clause_text: { type: String, default: '' },
+        explanation: { type: String, default: '' },
+        negotiation: { type: String, default: '' },
+        risk_level: { type: String, required: true, enum: ['High', 'Medium', 'Low'] },
+      },
+    ],
+  },
+  { timestamps: true },
+);
+
+reviewHistorySchema.index({ userId: 1, entryId: 1 }, { unique: true });
+
+const ReviewHistory = mongoose.models.ReviewHistory || mongoose.model('ReviewHistory', reviewHistorySchema);
+
+function safeTrimmedString(value, fallback = '', maxLength = 5000) {
+  const normalized = String(value ?? fallback).trim();
+  return normalized.slice(0, maxLength);
+}
+
+function toNonNegativeNumber(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, parsed);
+}
+
+function normalizeRiskLevel(value, fallback = 'Medium') {
+  return HISTORY_RISK_LEVELS.has(value) ? value : fallback;
+}
+
+function sanitizeHistoryEntry(input) {
+  const entry = input && typeof input === 'object' ? input : null;
+  if (!entry) return null;
+
+  const entryId = safeTrimmedString(entry.id, '', 80);
+  const fileName = safeTrimmedString(entry.fileName, '', 260);
+  const analyzedAtRaw = new Date(entry.analyzedAt);
+  const analyzedAt = Number.isNaN(analyzedAtRaw.getTime()) ? null : analyzedAtRaw;
+  const summaryInput = entry.summary && typeof entry.summary === 'object' ? entry.summary : null;
+  const resultsInput = Array.isArray(entry.results) ? entry.results : null;
+
+  if (!entryId || !fileName || !analyzedAt || !summaryInput || !resultsInput) {
+    return null;
+  }
+
+  const high = toNonNegativeNumber(summaryInput.high);
+  const medium = toNonNegativeNumber(summaryInput.medium);
+  const low = toNonNegativeNumber(summaryInput.low);
+  const overallRisk = normalizeRiskLevel(summaryInput.overallRisk, high > 0 ? 'High' : (medium > 0 ? 'Medium' : 'Low'));
+
+  const results = resultsInput.slice(0, 300).map((item, index) => {
+    const riskLevel = normalizeRiskLevel(item?.risk_level, 'Medium');
+    return {
+      _clauseId: safeTrimmedString(item?._clauseId, `${entryId}-${index}`, 80),
+      clause_type: safeTrimmedString(item?.clause_type, 'General Clause', 160),
+      clause_text: safeTrimmedString(item?.clause_text, '', 20000),
+      explanation: safeTrimmedString(item?.explanation, '', 20000),
+      negotiation: safeTrimmedString(item?.negotiation, '', 20000),
+      risk_level: riskLevel,
+    };
+  });
+
+  return {
+    entryId,
+    fileName,
+    analyzedAt,
+    summary: {
+      high,
+      medium,
+      low,
+      overallRisk,
+    },
+    results,
+  };
+}
+
+function toHistoryResponse(doc) {
+  return {
+    id: doc.entryId,
+    fileName: doc.fileName,
+    analyzedAt: doc.analyzedAt,
+    summary: doc.summary,
+    results: doc.results,
+  };
+}
 
 function isConfiguredGitHubClientId(value) {
   if (!value) return false;
@@ -132,7 +235,7 @@ async function connectMongo() {
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '5mb' }));
 
 function jsonError(res, status, message) {
   return res.status(status).json({ error: message });
@@ -289,6 +392,52 @@ app.post('/api/auth/logout', (_req, res) => {
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   return res.json({ user: req.authUser });
+});
+
+app.get('/api/history', requireAuth, async (req, res) => {
+  try {
+    const entries = await ReviewHistory.find({ userId: req.authUser._id })
+      .sort({ analyzedAt: -1 })
+      .limit(HISTORY_LIMIT)
+      .lean();
+
+    return res.json({
+      entries: entries.map(toHistoryResponse),
+    });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Failed to load review history.');
+  }
+});
+
+app.post('/api/history', requireAuth, async (req, res) => {
+  const sanitized = sanitizeHistoryEntry(req.body?.entry);
+  if (!sanitized) {
+    return jsonError(res, 400, 'Invalid history entry payload.');
+  }
+
+  try {
+    const saved = await ReviewHistory.findOneAndUpdate(
+      {
+        userId: req.authUser._id,
+        entryId: sanitized.entryId,
+      },
+      {
+        $set: sanitized,
+      },
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      },
+    ).lean();
+
+    return res.status(201).json({
+      entry: toHistoryResponse(saved),
+    });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Failed to save review history.');
+  }
 });
 
 app.post('/api/github-copilot/device/start', async (_req, res) => {

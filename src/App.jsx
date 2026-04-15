@@ -98,5 +98,5 @@ export default function App() {
     return <AuthPage onAuthSuccess={handleAuthSuccess} onBackToLanding={handleBackToLanding} />;
   }
 
-  return <ClauseIQ onSignOut={handleSignOut} onBackToLanding={handleBackToLanding} />;
+  return <ClauseIQ onSignOut={handleSignOut} onBackToLanding={handleBackToLanding} user={user} />;
 }
