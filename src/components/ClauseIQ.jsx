@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { jsPDF } from 'jspdf';
 import { usePDFExtractor } from '../hooks/usePDFExtractor';
 import { useGitHubCopilot } from '../hooks/useGitHubCopilot';
 import {
@@ -28,6 +29,34 @@ const HISTORY_RISK_FILTERS = ['All', 'High', 'Medium', 'Low'];
 function readSessionValue(key, fallback = '') {
   if (typeof window === 'undefined') return fallback;
   return window.sessionStorage.getItem(key) || fallback;
+}
+
+async function fetchHistoryFromServer() {
+  const response = await fetch('/api/history', {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to load history from server.');
+  }
+
+  const payload = await response.json().catch(() => null);
+  return Array.isArray(payload?.entries) ? payload.entries : [];
+}
+
+async function saveHistoryToServer(entry) {
+  const response = await fetch('/api/history', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify({ entry }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to save history to server.');
+  }
 }
 
 function getHistoryUserKey(userId) {
@@ -86,6 +115,17 @@ function formatRelativeTime(isoTime) {
   if (days < 7) return `${days} days ago`;
 
   return new Date(isoTime).toLocaleDateString();
+}
+
+function buildReportFileName(fileName) {
+  const normalizedBaseName = String(fileName || 'contract')
+    .replace(/\.pdf$/i, '')
+    .replace(/[^a-z0-9-]+/gi, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
+
+  return `${normalizedBaseName || 'contract'}-analysis-report.pdf`;
 }
 
 const DOCUMENT_TOPICS = [
@@ -184,10 +224,32 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   }, [copilotModel]);
 
   useEffect(() => {
-    const entries = readHistoryEntries(user?.id);
-    setAnalysisHistory(entries);
-    setSelectedHistoryId(entries[0]?.id || null);
-    setHistoryReady(true);
+    let cancelled = false;
+
+    const loadHistory = async () => {
+      const localEntries = readHistoryEntries(user?.id);
+
+      try {
+        const serverEntries = await fetchHistoryFromServer();
+        if (cancelled) return;
+        setAnalysisHistory(serverEntries);
+        setSelectedHistoryId(serverEntries[0]?.id || null);
+      } catch {
+        if (cancelled) return;
+        setAnalysisHistory(localEntries);
+        setSelectedHistoryId(localEntries[0]?.id || null);
+      } finally {
+        if (!cancelled) {
+          setHistoryReady(true);
+        }
+      }
+    };
+
+    loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   useEffect(() => {
@@ -365,6 +427,106 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     }
   };
 
+  const handleDownloadReport = () => {
+    try {
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 42;
+      const contentWidth = pageWidth - (margin * 2);
+      let cursorY = margin;
+
+      const writeBlock = (text, options = {}) => {
+        const {
+          fontSize = 11,
+          fontStyle = 'normal',
+          lineHeight = 15,
+          spacingAfter = 8,
+        } = options;
+
+        const normalizedText = String(text || '').trim();
+        if (!normalizedText) return;
+
+        doc.setFont('helvetica', fontStyle);
+        doc.setFontSize(fontSize);
+
+        const lines = doc.splitTextToSize(normalizedText, contentWidth);
+        lines.forEach((line) => {
+          if (cursorY + lineHeight > pageHeight - margin) {
+            doc.addPage();
+            cursorY = margin;
+          }
+          doc.text(line, margin, cursorY);
+          cursorY += lineHeight;
+        });
+
+        cursorY += spacingAfter;
+      };
+
+      const reportTime = new Date().toLocaleString();
+      writeBlock('ClauseIQ Contract Analysis Report', {
+        fontSize: 19,
+        fontStyle: 'bold',
+        lineHeight: 23,
+        spacingAfter: 10,
+      });
+      writeBlock(`Contract: ${selectedFile?.name || 'Uploaded contract'}`, { fontStyle: 'bold', spacingAfter: 4 });
+      writeBlock(`Generated: ${reportTime}`, { spacingAfter: 14 });
+
+      writeBlock('Risk Summary', {
+        fontSize: 15,
+        fontStyle: 'bold',
+        lineHeight: 19,
+        spacingAfter: 6,
+      });
+      writeBlock(`High Risk: ${riskCounts.high}`, { spacingAfter: 3 });
+      writeBlock(`Medium Risk: ${riskCounts.medium}`, { spacingAfter: 3 });
+      writeBlock(`Low Risk: ${riskCounts.low}`, { spacingAfter: 14 });
+
+      writeBlock('Key Insights', {
+        fontSize: 15,
+        fontStyle: 'bold',
+        lineHeight: 19,
+        spacingAfter: 6,
+      });
+      if (keyInsights.length === 0) {
+        writeBlock('No key insights were generated for this document.', { spacingAfter: 12 });
+      } else {
+        keyInsights.forEach((insight, index) => {
+          writeBlock(`${index + 1}. ${insight.title}`, { fontStyle: 'bold', spacingAfter: 3 });
+          writeBlock(insight.detail, { spacingAfter: 10 });
+        });
+      }
+
+      writeBlock('Risk Analysis', {
+        fontSize: 15,
+        fontStyle: 'bold',
+        lineHeight: 19,
+        spacingAfter: 6,
+      });
+      if (!Array.isArray(results) || results.length === 0) {
+        writeBlock('No concerning clauses were identified in this contract.', { spacingAfter: 0 });
+      } else {
+        results.forEach((item, index) => {
+          writeBlock(`${index + 1}. ${item.clause_type || 'General Clause'} (${item.risk_level || 'Medium'} Risk)`, {
+            fontStyle: 'bold',
+            spacingAfter: 3,
+          });
+          writeBlock(`Explanation: ${item.explanation || 'Not available.'}`, { spacingAfter: 3 });
+          if (item.negotiation?.trim()) {
+            writeBlock(`Negotiation: ${item.negotiation}`, { spacingAfter: 3 });
+          }
+          writeBlock(`Clause: ${item.clause_text || 'Not available.'}`, { spacingAfter: 10 });
+        });
+      }
+
+      doc.save(buildReportFileName(selectedFile?.name));
+    } catch (error) {
+      console.error('Failed to generate report PDF:', error);
+      alert('Unable to generate the report PDF. Please try again.');
+    }
+  };
+
   const riskCounts = useMemo(() => {
     if (!Array.isArray(results) || results.length === 0) {
       return { high: 0, medium: 0, low: 0 };
@@ -383,6 +545,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const hasResults = Array.isArray(results) && results.length > 0;
   const isExtracting = pdf.status === 'extracting';
   const isPdfDone = pdf.status === 'done';
+  const canDownloadReport = isPdfDone && !analyzing && Boolean(selectedFile) && Array.isArray(results);
 
   useEffect(() => {
     const canSave =
@@ -426,6 +589,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     setAnalysisHistory((previous) => [entry, ...previous].slice(0, HISTORY_LIMIT));
     setSelectedHistoryId(entry.id);
     savedRunId.current = runId;
+
+    saveHistoryToServer(entry).catch((error) => {
+      console.error('Failed to persist history entry to server:', error);
+    });
   }, [analyzing, isPdfDone, keyInsights, results, selectedFile]);
 
   const analyzedHistory = useMemo(
@@ -878,6 +1045,16 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                       <InsightItem key={`${insight.title}-${index}`} insight={insight} />
                     ))}
                   </div>
+                )}
+
+                {canDownloadReport && (
+                  <button
+                    type="button"
+                    className="insights-card__download-btn"
+                    onClick={handleDownloadReport}
+                  >
+                    Download Report (PDF)
+                  </button>
                 )}
               </section>
             </aside>
