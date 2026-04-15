@@ -30,34 +30,6 @@ function readSessionValue(key, fallback = '') {
   return window.sessionStorage.getItem(key) || fallback;
 }
 
-async function fetchHistoryFromServer() {
-  const response = await fetch('/api/history', {
-    credentials: 'include',
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to load history from server.');
-  }
-
-  const payload = await response.json().catch(() => null);
-  return Array.isArray(payload?.entries) ? payload.entries : [];
-}
-
-async function saveHistoryToServer(entry) {
-  const response = await fetch('/api/history', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    credentials: 'include',
-    body: JSON.stringify({ entry }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to save history to server.');
-  }
-}
-
 function getHistoryUserKey(userId) {
   return userId ? `user:${userId}` : 'user:anonymous';
 }
@@ -212,32 +184,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   }, [copilotModel]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const loadHistory = async () => {
-      const localEntries = readHistoryEntries(user?.id);
-
-      try {
-        const serverEntries = await fetchHistoryFromServer();
-        if (cancelled) return;
-        setAnalysisHistory(serverEntries);
-        setSelectedHistoryId(serverEntries[0]?.id || null);
-      } catch {
-        if (cancelled) return;
-        setAnalysisHistory(localEntries);
-        setSelectedHistoryId(localEntries[0]?.id || null);
-      } finally {
-        if (!cancelled) {
-          setHistoryReady(true);
-        }
-      }
-    };
-
-    loadHistory();
-
-    return () => {
-      cancelled = true;
-    };
+    const entries = readHistoryEntries(user?.id);
+    setAnalysisHistory(entries);
+    setSelectedHistoryId(entries[0]?.id || null);
+    setHistoryReady(true);
   }, [user?.id]);
 
   useEffect(() => {
@@ -476,10 +426,6 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     setAnalysisHistory((previous) => [entry, ...previous].slice(0, HISTORY_LIMIT));
     setSelectedHistoryId(entry.id);
     savedRunId.current = runId;
-
-    saveHistoryToServer(entry).catch((error) => {
-      console.error('Failed to persist history entry to server:', error);
-    });
   }, [analyzing, isPdfDone, keyInsights, results, selectedFile]);
 
   const analyzedHistory = useMemo(
