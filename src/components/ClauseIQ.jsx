@@ -1,190 +1,238 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePDFExtractor } from '../hooks/usePDFExtractor';
-import { useWebLLM } from '../hooks/useWebLLM';
+import { useGitHubCopilot } from '../hooks/useGitHubCopilot';
 import {
-  buildClauseAnalysisPrompt,
   detectRiskByPattern,
   generateFallbackAnalysis,
   MAX_CONCURRENT_ANALYSES,
-  MODEL_LABEL,
-  MODEL_SIZE_LABEL,
 } from '../utils/constants';
 import {
   extractClauses,
   filterSubstantiveClauses,
-  batchClauses,
   normalizeClauseAnalysis,
   validateAndEnrichAnalysis,
 } from '../utils/rag';
 import './ClauseIQ.css';
 
-export function ClauseIQ() {
-  const pdf = usePDFExtractor();
-  const llm = useWebLLM();
+const DEFAULT_COPILOT_MODEL = 'gpt-4.1';
+const COPILOT_MODEL_STORAGE_KEY = 'clauseiq_github_copilot_model';
 
+function readSessionValue(key, fallback = '') {
+  if (typeof window === 'undefined') return fallback;
+  return window.sessionStorage.getItem(key) || fallback;
+}
+
+const DOCUMENT_TOPICS = [
+  { title: 'Payment Terms', initials: 'PT', keywords: ['payment', 'invoice', 'net ', 'fee', 'billing'] },
+  { title: 'Contract Duration', initials: 'CD', keywords: ['term', 'duration', 'renew', 'expiration', 'effective date'] },
+  { title: 'Termination', initials: 'TR', keywords: ['terminate', 'termination', 'notice period', 'breach'] },
+  { title: 'Liability', initials: 'LB', keywords: ['liability', 'damages', 'indemn', 'cap'] },
+  { title: 'Confidentiality', initials: 'CF', keywords: ['confidential', 'non-disclosure', 'nda'] },
+  { title: 'Intellectual Property', initials: 'IP', keywords: ['intellectual property', 'ip', 'ownership', 'license'] },
+  { title: 'Dispute Resolution', initials: 'DR', keywords: ['dispute', 'arbitration', 'jurisdiction', 'governing law'] },
+];
+
+function buildDocumentInsights(text) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+
+  const sentences = normalized
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length >= 40);
+
+  if (sentences.length === 0) return [];
+
+  const pickedSentenceIndexes = new Set();
+  const insights = [];
+
+  for (const topic of DOCUMENT_TOPICS) {
+    if (insights.length >= 4) break;
+
+    const matchIndex = sentences.findIndex((sentence, index) => {
+      if (pickedSentenceIndexes.has(index)) return false;
+      const lowered = sentence.toLowerCase();
+      return topic.keywords.some((keyword) => lowered.includes(keyword));
+    });
+
+    if (matchIndex === -1) continue;
+
+    pickedSentenceIndexes.add(matchIndex);
+    insights.push({
+      title: topic.title,
+      initials: topic.initials,
+      detail: sentences[matchIndex],
+    });
+  }
+
+  for (let index = 0; insights.length < 4 && index < sentences.length; index += 1) {
+    if (pickedSentenceIndexes.has(index)) continue;
+
+    insights.push({
+      title: `Key Point ${insights.length + 1}`,
+      initials: `K${insights.length + 1}`,
+      detail: sentences[index],
+    });
+  }
+
+  return insights;
+}
+
+export function ClauseIQ({ onSignOut, onBackToLanding }) {
+  const pdf = usePDFExtractor();
+  const githubCopilot = useGitHubCopilot();
+  const {
+    analyzeClause: analyzeCopilotClause,
+    configurationError: copilotConfigurationError,
+    isAuthenticated: isCopilotAuthenticated,
+    isAuthorizing: isCopilotAuthorizing,
+    isConfigured: isCopilotConfigured,
+    deviceAuth: copilotDeviceAuth,
+    startAuth: startCopilotAuth,
+    disconnect: disconnectCopilot,
+  } = githubCopilot;
+
+  const [copilotModel, setCopilotModel] = useState(() => readSessionValue(COPILOT_MODEL_STORAGE_KEY, DEFAULT_COPILOT_MODEL));
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState({ processed: 0, total: 0 });
   const [analysisError, setAnalysisError] = useState(null);
   const [results, setResults] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [isDraggingUpload, setIsDraggingUpload] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const inputRef = useRef(null);
   const didAnalyse = useRef(false);
 
-  // Calculate risk scores from results
-  const calculateRiskScores = () => {
-    if (!results || !Array.isArray(results) || results.length === 0) {
-      return { overall: 0, high: 0, medium: 0, low: 0, highCount: 0, mediumCount: 0, lowCount: 0 };
-    }
-
-    const high = results.filter(r => r.risk_level === 'High').length;
-    const medium = results.filter(r => r.risk_level === 'Medium').length;
-    const low = results.filter(r => r.risk_level === 'Low').length;
-    const total = results.length;
-
-    // Calculate percentages
-    const highPct = Math.round((high / total) * 100);
-    const mediumPct = Math.round((medium / total) * 100);
-    const lowPct = Math.round((low / total) * 100);
-
-    // Overall risk score (higher = more risky, 0-100 scale)
-    // Weight: High=100, Medium=50, Low=10
-    const overallScore = Math.round(((high * 100) + (medium * 50) + (low * 10)) / total);
-
-    return {
-      overall: overallScore,
-      high: highPct,
-      medium: mediumPct,
-      low: lowPct,
-      highCount: high,
-      mediumCount: medium,
-      lowCount: low
-    };
-  };
-
-  const riskScores = calculateRiskScores();
-
-  // ============================================================
-  // UNIVERSAL CLAUSE ANALYSIS - No Category Constraints
-  // ============================================================
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(COPILOT_MODEL_STORAGE_KEY, copilotModel);
+  }, [copilotModel]);
 
   useEffect(() => {
-    const canRun = pdf.status === 'done' && llm.modelState === 'ready' && !didAnalyse.current;
+    didAnalyse.current = false;
+    if (pdf.status === 'done') {
+      setResults(null);
+      setAnalysisError(null);
+    }
+  }, [pdf.status]);
+
+  useEffect(() => {
+    const canRun = pdf.status === 'done' && !!pdf.text && !didAnalyse.current;
     if (!canRun) return;
 
     didAnalyse.current = true;
+    let cancelled = false;
 
     (async () => {
       setAnalyzing(true);
+      setAnalysisProgress({ processed: 0, total: 0 });
       setAnalysisError(null);
       setResults(null);
 
       try {
         const allClauses = extractClauses(pdf.text);
         const substantiveClauses = filterSubstantiveClauses(allClauses);
+        setAnalysisProgress({ processed: 0, total: substantiveClauses.length });
 
         if (substantiveClauses.length === 0) {
           setAnalysisError('No substantial clauses found in the contract.');
           return;
         }
 
-        const clauseBatches = batchClauses(substantiveClauses, 8);
+        const canUseCopilot = isCopilotConfigured && isCopilotAuthenticated && Boolean(copilotModel.trim());
 
-        const processBatch = async (batch, batchIndex) => {
-          const patternResults = batch.map(clause => ({
-            clause,
-            patterns: detectRiskByPattern(clause.cleanText || clause.text),
-          }));
+        const processClause = async (clause, index) => {
+          const patternResult = detectRiskByPattern(clause.cleanText || clause.text);
 
-          const userPrompt = buildClauseAnalysisPrompt(batch);
+          if (canUseCopilot) {
+            try {
+              const apiResponse = await analyzeCopilotClause(clause, copilotModel.trim());
+              const normalized = normalizeClauseAnalysis(apiResponse, clause);
 
-          let llmAnalyses = [];
-          try {
-            const llmResponse = await llm.analyze('', { userPrompt });
-
-            if (Array.isArray(llmResponse)) {
-              llmAnalyses = llmResponse
-                .map((item, index) => normalizeClauseAnalysis(item, batch[index]))
-                .filter(item => item !== null);
-            }
-          } catch (err) {
-            console.warn(`LLM analysis failed for batch ${batchIndex + 1}:`, err);
-          }
-
-          const batchAnalyses = [];
-          for (let i = 0; i < batch.length; i++) {
-            const clause = batch[i];
-            const patternResult = patternResults[i].patterns;
-
-            let finalAnalysis;
-
-            if (llmAnalyses[i]) {
-              finalAnalysis = validateAndEnrichAnalysis(
-                llmAnalyses[i],
-                clause,
-                patternResult
-              );
-            } else {
-              finalAnalysis = generateFallbackAnalysis(clause, patternResult);
-            }
-
-            if (
-              finalAnalysis.risk_level !== 'Low' ||
-              (finalAnalysis.negotiation && finalAnalysis.negotiation.trim())
-            ) {
-              batchAnalyses.push(finalAnalysis);
+              if (normalized) {
+                const validated = validateAndEnrichAnalysis(normalized, clause, patternResult);
+                return { ...validated, _clauseId: clause.id };
+              }
+            } catch (error) {
+              console.warn(`Copilot analysis failed for clause ${index + 1}:`, error);
             }
           }
 
-          return batchAnalyses;
+          return { ...generateFallbackAnalysis(clause, patternResult), _clauseId: clause.id };
         };
-
-        const processWithConcurrency = async (batches, concurrency) => {
-          const results = [];
-          for (let i = 0; i < batches.length; i += concurrency) {
-            const chunk = batches.slice(i, i + concurrency);
-            const batchPromises = chunk.map((batch, offset) =>
-              processBatch(batch, i + offset)
-            );
-            const chunkResults = await Promise.all(batchPromises);
-            results.push(...chunkResults.flat());
-          }
-          return results;
-        };
-
-        const allAnalyses = await processWithConcurrency(clauseBatches, MAX_CONCURRENT_ANALYSES);
 
         const seen = new Set();
-        const unique = allAnalyses.filter(analysis => {
+        const riskOrder = { High: 0, Medium: 1, Low: 2 };
+        const totalClauses = substantiveClauses.length;
+        let nextIndex = 0;
+        let visibleCount = 0;
+
+        const maybePublishAnalysis = (analysis) => {
+          const shouldShow = analysis.risk_level !== 'Low' || (analysis.negotiation && analysis.negotiation.trim());
+          if (!shouldShow) return;
+
           const key = (analysis.clause_text ?? '').slice(0, 100).toLowerCase();
-          if (seen.has(key)) return false;
+          if (seen.has(key)) return;
+
           seen.add(key);
-          return true;
-        });
+          visibleCount += 1;
 
-        const sorted = unique.sort((a, b) => {
-          const riskOrder = { High: 0, Medium: 1, Low: 2 };
-          return riskOrder[a.risk_level] - riskOrder[b.risk_level];
-        });
+          if (cancelled) return;
 
-        setResults(sorted);
-      } catch (err) {
-        setAnalysisError(err.message);
+          setResults((previous) => {
+            const existing = Array.isArray(previous) ? previous : [];
+            return [...existing, analysis].sort((a, b) => riskOrder[a.risk_level] - riskOrder[b.risk_level]);
+          });
+        };
+
+        const runWorker = async () => {
+          while (nextIndex < substantiveClauses.length) {
+            const currentIndex = nextIndex;
+            nextIndex += 1;
+
+            const analysis = await processClause(substantiveClauses[currentIndex], currentIndex);
+            maybePublishAnalysis(analysis);
+
+            if (!cancelled) {
+              setAnalysisProgress((previous) => ({
+                ...previous,
+                processed: Math.min(previous.processed + 1, totalClauses),
+              }));
+            }
+          }
+        };
+
+        const workerCount = Math.min(MAX_CONCURRENT_ANALYSES, substantiveClauses.length);
+        await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+
+        if (!cancelled && visibleCount === 0) {
+          setResults([]);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAnalysisError(error.message || 'Failed to complete analysis.');
+        }
       } finally {
-        setAnalyzing(false);
+        if (!cancelled) {
+          setAnalyzing(false);
+        }
       }
     })();
-  }, [pdf.status, llm.modelState, pdf.text, llm.analyze]);
 
-  // ============================================================
-  // FILE HANDLING
-  // ============================================================
+    return () => {
+      cancelled = true;
+    };
+  }, [analyzeCopilotClause, copilotModel, isCopilotAuthenticated, isCopilotConfigured, pdf.status, pdf.text]);
 
   const handleFileSelect = (file) => {
     if (!file) return;
+
     if (file.type !== 'application/pdf') {
       alert('Only PDF files are accepted.');
       return;
     }
+
     didAnalyse.current = false;
     setResults(null);
     setAnalysisError(null);
@@ -192,298 +240,340 @@ export function ClauseIQ() {
     pdf.extractText(file);
   };
 
-  const handleAuditClick = () => {
+  const handleFileChange = (event) => {
+    handleFileSelect(event.target.files[0]);
+    event.target.value = '';
+  };
+
+  const triggerFilePicker = () => {
+    if (pdf.status === 'extracting') return;
     inputRef.current?.click();
   };
 
-  const handleFileChange = (e) => {
-    handleFileSelect(e.target.files[0]);
-    e.target.value = '';
+  const handleSignOutClick = async () => {
+    if (isSigningOut) return;
+
+    setIsSigningOut(true);
+    try {
+      if (typeof onSignOut === 'function') {
+        await onSignOut();
+      } else {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Sign out failed:', error);
+      setIsSigningOut(false);
+    }
   };
 
-  // ============================================================
-  // DERIVED STATE
-  // ============================================================
+  const handleBrandClick = () => {
+    if (typeof onBackToLanding === 'function') {
+      onBackToLanding();
+    }
+  };
 
-  const isModelLoading = llm.modelState === 'loading';
-  const isModelReady = llm.modelState === 'ready';
-  const isModelError = llm.modelState === 'error';
+  const riskCounts = useMemo(() => {
+    if (!Array.isArray(results) || results.length === 0) {
+      return { high: 0, medium: 0, low: 0 };
+    }
+
+    return {
+      high: results.filter((result) => result.risk_level === 'High').length,
+      medium: results.filter((result) => result.risk_level === 'Medium').length,
+      low: results.filter((result) => result.risk_level === 'Low').length,
+    };
+  }, [results]);
+
+  const keyInsights = useMemo(() => buildDocumentInsights(pdf.text), [pdf.text]);
+
+  const hasUploadedFile = Boolean(selectedFile);
+  const hasResults = Array.isArray(results) && results.length > 0;
   const isExtracting = pdf.status === 'extracting';
   const isPdfDone = pdf.status === 'done';
-  const hasResults = results && Array.isArray(results) && results.length > 0;
-  const { percent = 0, text = '' } = llm.loadProgress || {};
 
-  // Get risk health label
-  const getRiskHealthLabel = () => {
-    if (!hasResults) return 'No Data';
-    if (riskScores.overall >= 70) return 'High Risk';
-    if (riskScores.overall >= 40) return 'Medium Risk';
-    return 'Low Risk';
-  };
+  const renderUploadBox = () => (
+    <div
+      className={`upload-dropzone ${isDraggingUpload ? 'upload-dropzone--dragging' : ''}`}
+      onClick={triggerFilePicker}
+      onDrop={(event) => {
+        event.preventDefault();
+        setIsDraggingUpload(false);
+        handleFileSelect(event.dataTransfer.files[0]);
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        if (!isDraggingUpload) {
+          setIsDraggingUpload(true);
+        }
+      }}
+      onDragLeave={() => setIsDraggingUpload(false)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          triggerFilePicker();
+        }
+      }}
+      aria-label="Upload contract"
+    >
+      <div className="upload-dropzone__icon" aria-hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 16V4" />
+          <path d="M7 9l5-5 5 5" />
+          <path d="M20 16.5V20a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3.5" />
+        </svg>
+      </div>
 
-  const getRiskHealthColor = () => {
-    if (!hasResults) return '#5A6159';
-    if (riskScores.overall >= 70) return '#9E422C';
-    if (riskScores.overall >= 40) return '#D97706';
-    return '#5F614A';
-  };
+      <h3 className="upload-dropzone__title">Drop your contract here</h3>
+      <p className="upload-dropzone__subtitle">or click to browse files</p>
+      <p className="upload-dropzone__support">Supports PDF up to 10MB</p>
+    </div>
+  );
+
+  const renderCopilotAuthCard = () => (
+    <section className="copilot-auth-card">
+      <div className="copilot-auth-card__header">
+        <h2 className="copilot-auth-card__title">GitHub Copilot</h2>
+        <span className={`copilot-auth-card__state ${isCopilotAuthenticated ? 'copilot-auth-card__state--ok' : ''}`}>
+          {isCopilotAuthenticated ? 'Connected' : 'Not Connected'}
+        </span>
+      </div>
+
+      <label className="copilot-auth-card__label" htmlFor="copilot-model-input">Model</label>
+      <input
+        id="copilot-model-input"
+        className="copilot-auth-card__input"
+        type="text"
+        value={copilotModel}
+        onChange={(event) => setCopilotModel(event.target.value)}
+        placeholder={DEFAULT_COPILOT_MODEL}
+      />
+
+      {isCopilotAuthenticated ? (
+        <div className="copilot-auth-card__row">
+          <p className="copilot-auth-card__text">Authenticated for this browser session.</p>
+          <button
+            type="button"
+            className="copilot-auth-card__btn copilot-auth-card__btn--secondary"
+            onClick={disconnectCopilot}
+          >
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="copilot-auth-card__btn"
+          onClick={startCopilotAuth}
+          disabled={!isCopilotConfigured || isCopilotAuthorizing}
+        >
+          {isCopilotAuthorizing ? 'Waiting for GitHub...' : 'Connect GitHub Copilot'}
+        </button>
+      )}
+
+      {copilotDeviceAuth.status === 'waiting' && (
+        <div className="copilot-auth-device">
+          <span className="copilot-auth-device__label">Enter this code on GitHub</span>
+          <span className="copilot-auth-device__code">{copilotDeviceAuth.userCode}</span>
+          <a
+            className="copilot-auth-device__link"
+            href={copilotDeviceAuth.verificationUri}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open github.com/login/device
+          </a>
+        </div>
+      )}
+
+      {copilotConfigurationError && (
+        <p className="copilot-auth-card__error">{copilotConfigurationError}</p>
+      )}
+
+      {copilotDeviceAuth.error && (
+        <p className="copilot-auth-card__error">{copilotDeviceAuth.error}</p>
+      )}
+
+      {!isCopilotAuthenticated && !copilotConfigurationError && (
+        <p className="copilot-auth-card__hint">You can still upload and review with fallback analysis if not connected.</p>
+      )}
+    </section>
+  );
 
   return (
-    <div className="analysis-page">
-      {/* Top Navigation */}
-      <nav className="analysis-nav">
-        <div className="analysis-nav__container">
-          <div className="analysis-nav__logo">ClauseIQ</div>
+    <div className="workspace-page">
+      <aside className="workspace-sidebar">
+        <div className="workspace-brand">
+          <button type="button" className="workspace-brand__name" onClick={handleBrandClick}>
+            ClauseIQ
+          </button>
         </div>
-      </nav>
 
-      <div className="analysis-content">
-        {/* Left Panel - Risk Score */}
-        <aside className="analysis-sidebar">
-          <div className="risk-panel">
-            <h2 className="risk-panel__title">Risk Score Health</h2>
+        <div className="workspace-menu">
+          <button type="button" className="workspace-menu__item workspace-menu__item--active">Workspace</button>
+          <button type="button" className="workspace-menu__item">History</button>
+        </div>
 
-            {/* Circular Gauge */}
-            <div className="risk-gauge">
-              <svg className="risk-gauge__svg" viewBox="0 0 200 200">
-                {/* Background circle */}
-                <circle
-                  className="risk-gauge__bg"
-                  cx="100"
-                  cy="100"
-                  r="85"
-                  fill="none"
-                  stroke="#E5E1D6"
-                  strokeWidth="12"
-                />
-                {/* Progress circle */}
-                <circle
-                  className="risk-gauge__progress"
-                  cx="100"
-                  cy="100"
-                  r="85"
-                  fill="none"
-                  stroke={getRiskHealthColor()}
-                  strokeWidth="12"
-                  strokeLinecap="round"
-                  strokeDasharray={`${(hasResults ? riskScores.overall : 0) * 5.34} 534`}
-                  transform="rotate(-90 100 100)"
-                />
-              </svg>
-              <div className="risk-gauge__center">
-                <span className="risk-gauge__value">{hasResults ? riskScores.overall : '--'}</span>
-                <span className="risk-gauge__label">{getRiskHealthLabel()}</span>
-              </div>
-            </div>
+        <div className="workspace-sidebar__spacer" />
 
-            {/* Risk Bars */}
-            <div className="risk-bars">
-              <div className="risk-bar">
-                <div className="risk-bar__header">
-                  <span className="risk-bar__label">High Risk</span>
-                  <span className="risk-bar__value">{hasResults ? `${riskScores.high}%` : '--'}</span>
-                </div>
-                <div className="risk-bar__track">
-                  <div
-                    className="risk-bar__fill risk-bar__fill--high"
-                    style={{ width: hasResults ? `${riskScores.high}%` : '0%' }}
-                  />
-                </div>
-                <span className="risk-bar__count">{hasResults ? `${riskScores.highCount} clauses` : ''}</span>
-              </div>
+        <div className="workspace-menu workspace-menu--footer">
+          <button type="button" className="workspace-menu__item">Settings</button>
+          <button
+            type="button"
+            className="workspace-menu__item"
+            onClick={handleSignOutClick}
+            disabled={isSigningOut}
+          >
+            {isSigningOut ? 'Signing Out...' : 'Sign Out'}
+          </button>
+        </div>
+      </aside>
 
-              <div className="risk-bar">
-                <div className="risk-bar__header">
-                  <span className="risk-bar__label">Medium Risk</span>
-                  <span className="risk-bar__value">{hasResults ? `${riskScores.medium}%` : '--'}</span>
-                </div>
-                <div className="risk-bar__track">
-                  <div
-                    className="risk-bar__fill risk-bar__fill--medium"
-                    style={{ width: hasResults ? `${riskScores.medium}%` : '0%' }}
-                  />
-                </div>
-                <span className="risk-bar__count">{hasResults ? `${riskScores.mediumCount} clauses` : ''}</span>
-              </div>
+      <main className={`workspace-content ${hasUploadedFile ? 'workspace-content--uploaded' : ''}`}>
+        {!hasUploadedFile ? (
+          <section className="workspace-upload-view">
+            <header className="workspace-header">
+              <h1 className="workspace-header__title">Contract Review</h1>
+              <p className="workspace-header__subtitle">Upload your contract to get instant AI-powered analysis</p>
+            </header>
 
-              <div className="risk-bar">
-                <div className="risk-bar__header">
-                  <span className="risk-bar__label">Low Risk</span>
-                  <span className="risk-bar__value">{hasResults ? `${riskScores.low}%` : '--'}</span>
-                </div>
-                <div className="risk-bar__track">
-                  <div
-                    className="risk-bar__fill risk-bar__fill--low"
-                    style={{ width: hasResults ? `${riskScores.low}%` : '0%' }}
-                  />
-                </div>
-                <span className="risk-bar__count">{hasResults ? `${riskScores.lowCount} clauses` : ''}</span>
-              </div>
-            </div>
+            {renderUploadBox()}
 
-            {/* Audit Button */}
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".pdf,application/pdf"
-              onChange={handleFileChange}
-              style={{ display: 'none' }}
-            />
-            <button className="audit-btn" onClick={handleAuditClick} disabled={isExtracting}>
-              {isExtracting ? 'Extracting...' : 'Audit Files'}
-            </button>
-
-            {selectedFile && (
-              <div className="selected-file">
-                <span className="selected-file__icon">PDF</span>
-                <span className="selected-file__name">{selectedFile.name}</span>
+            {pdf.error && (
+              <div className="analysis-alert analysis-alert--error">
+                <span>{pdf.error}</span>
               </div>
             )}
-          </div>
-        </aside>
 
-        {/* Right Panel - Main Content */}
-        <main className="analysis-main">
-          {/* Model Loading Section */}
-          {isModelLoading && (
-            <div className="model-loader-card">
-              <div className="model-loader-card__header">
-                <span className="model-loader-card__status">INITIALIZING AI</span>
-                <span className="model-loader-card__name">{MODEL_LABEL}</span>
-              </div>
-              <div className="model-loader-card__progress">
-                <div className="model-loader-card__track">
-                  <div
-                    className="model-loader-card__fill"
-                    style={{ width: `${percent}%` }}
-                  />
+            {renderCopilotAuthCard()}
+          </section>
+        ) : (
+          <>
+            <section className="workspace-center-pane">
+              <header className="workspace-header">
+                <h1 className="workspace-header__title">Contract Review</h1>
+                <p className="workspace-header__subtitle">Upload your contract to get instant AI-powered analysis</p>
+              </header>
+
+              <section className="file-summary-card">
+                <div className="file-summary-card__head">
+                  <div>
+                    <h2 className="file-summary-card__name">{selectedFile?.name}</h2>
+                    <p className="file-summary-card__meta">
+                      {isExtracting
+                        ? 'Extracting text...'
+                        : (analyzing
+                          ? `Analyzing clauses (${analysisProgress.processed}/${analysisProgress.total})`
+                          : 'Analyzed just now')}
+                    </p>
+                  </div>
                 </div>
-                <div className="model-loader-card__meta">
-                  <span className="model-loader-card__text">{text || 'Starting...'}</span>
-                  <span className="model-loader-card__pct">{percent}%</span>
+
+                <div className="risk-count-grid">
+                  <div className="risk-count risk-count--high">
+                    <span className="risk-count__label">High Risk</span>
+                    <strong className="risk-count__value">{riskCounts.high}</strong>
+                  </div>
+
+                  <div className="risk-count risk-count--medium">
+                    <span className="risk-count__label">Medium Risk</span>
+                    <strong className="risk-count__value">{riskCounts.medium}</strong>
+                  </div>
+
+                  <div className="risk-count risk-count--low">
+                    <span className="risk-count__label">Low Risk</span>
+                    <strong className="risk-count__value">{riskCounts.low}</strong>
+                  </div>
                 </div>
-              </div>
-              <p className="model-loader-card__note">
-                Downloading {MODEL_SIZE_LABEL} of model weights to your browser cache.
-                Subsequent visits will be instant - everything runs 100% locally.
-              </p>
-            </div>
-          )}
+              </section>
 
-          {/* Model Error */}
-          {isModelError && (
-            <div className="error-card">
-              <span className="error-card__icon">!</span>
-              <span className="error-card__text">Model failed to load. Try refreshing the page.</span>
-            </div>
-          )}
+              {pdf.error && <div className="analysis-alert analysis-alert--warning">{pdf.error}</div>}
 
-          {/* Model Ready Status */}
-          {isModelReady && !isPdfDone && !analyzing && !hasResults && (
-            <div className="ready-card">
-              <div className="ready-card__icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 12l2 2 4-4" />
-                  <circle cx="12" cy="12" r="10" />
-                </svg>
-              </div>
-              <h3 className="ready-card__title">AI Model Ready</h3>
-              <p className="ready-card__text">
-                Upload a PDF contract using the "Audit Files" button to begin analysis.
-              </p>
-            </div>
-          )}
+              {analysisError && <div className="analysis-alert analysis-alert--error">Analysis error: {analysisError}</div>}
 
-          {/* Extracting State */}
-          {isExtracting && (
-            <div className="status-card">
-              <div className="status-card__spinner" />
-              <span className="status-card__text">Extracting text from PDF...</span>
-            </div>
-          )}
+              {isExtracting && <div className="analysis-status">Extracting text from PDF...</div>}
 
-          {/* Waiting for Model */}
-          {isPdfDone && isModelLoading && (
-            <div className="status-card status-card--waiting">
-              <div className="status-card__spinner" />
-              <span className="status-card__text">
-                Waiting for the AI model to finish loading before analysing...
-              </span>
-            </div>
-          )}
+              {analyzing && <div className="analysis-status">Analyzing contract for risk clauses...</div>}
 
-          {/* Analyzing State */}
-          {analyzing && (
-            <div className="status-card status-card--analyzing">
-              <div className="status-card__spinner" />
-              <span className="status-card__text">Analysing contract for red flags...</span>
-            </div>
-          )}
+              {hasResults && (
+                <section className="risk-analysis-section">
+                  <h2 className="risk-analysis-section__title">Risk Analysis</h2>
+                  <div className="clauses-list">
+                    {results.map((item, index) => (
+                      <ClauseCard key={item._clauseId || `${item.clause_type}-${index}`} item={item} />
+                    ))}
+                  </div>
+                </section>
+              )}
 
-          {/* Analysis Error */}
-          {analysisError && (
-            <div className="error-card">
-              <span className="error-card__icon">!</span>
-              <span className="error-card__text">Analysis error: {analysisError}</span>
-            </div>
-          )}
-
-          {/* Results Section */}
-          {hasResults && (
-            <div className="clauses-section">
-              <div className="clauses-header">
-                <h2 className="clauses-header__title">Analysis Complete</h2>
-                <div className="clauses-header__summary">
-                  {riskScores.highCount > 0 && (
-                    <span className="summary-badge summary-badge--high">
-                      {riskScores.highCount} High Risk
-                    </span>
-                  )}
-                  {riskScores.mediumCount > 0 && (
-                    <span className="summary-badge summary-badge--medium">
-                      {riskScores.mediumCount} Medium Risk
-                    </span>
-                  )}
-                  {riskScores.lowCount > 0 && (
-                    <span className="summary-badge summary-badge--low">
-                      {riskScores.lowCount} Low Risk
-                    </span>
-                  )}
+              {isPdfDone && !analyzing && Array.isArray(results) && results.length === 0 && (
+                <div className="no-issues-card">
+                  <h3 className="no-issues-card__title">No Concerns Found</h3>
+                  <p className="no-issues-card__text">No concerning clauses were identified in this contract.</p>
                 </div>
-              </div>
+              )}
+            </section>
 
-              <div className="clauses-list">
-                {results.map((item, idx) => (
-                  <ClauseCard key={`${item.clause_type}-${idx}`} item={item} index={idx} />
-                ))}
-              </div>
-            </div>
-          )}
+            <aside className="workspace-right-pane">
+              <section className="insights-card">
+                <h2 className="insights-card__title">Key Insights</h2>
 
-          {/* No Results */}
-          {results && Array.isArray(results) && results.length === 0 && (
-            <div className="no-issues-card">
-              <div className="no-issues-card__icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 12l2 2 4-4" />
-                  <circle cx="12" cy="12" r="10" />
-                </svg>
-              </div>
-              <h3 className="no-issues-card__title">No Concerns Found</h3>
-              <p className="no-issues-card__text">
-                No concerning clauses were identified in this contract.
-                Consider having a qualified solicitor review it before signing.
-              </p>
-            </div>
-          )}
-        </main>
-      </div>
+                {isExtracting && (
+                  <p className="insights-card__empty">Key insights will appear once extraction finishes.</p>
+                )}
+
+                {isPdfDone && keyInsights.length === 0 && (
+                  <p className="insights-card__empty">No key insights could be generated from this document.</p>
+                )}
+
+                {keyInsights.length > 0 && (
+                  <div className="insights-list">
+                    {keyInsights.map((insight, index) => (
+                      <InsightItem key={`${insight.title}-${index}`} insight={insight} />
+                    ))}
+                  </div>
+                )}
+              </section>
+            </aside>
+          </>
+        )}
+      </main>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        onChange={handleFileChange}
+        style={{ display: 'none' }}
+      />
     </div>
   );
 }
 
-// Clause Card Component
-function ClauseCard({ item, index }) {
+function InsightItem({ insight }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <article className={`insight-item ${open ? 'insight-item--open' : ''}`}>
+      <button type="button" className="insight-item__trigger" onClick={() => setOpen((value) => !value)}>
+        <div className="insight-item__heading">
+          <span className="insight-item__initials">{insight.initials}</span>
+          <h3 className="insight-item__title">{insight.title}</h3>
+        </div>
+        <span className="insight-item__chevron">{open ? '▼' : '▶'}</span>
+      </button>
+
+      {open && <p className="insight-item__detail">{insight.detail}</p>}
+    </article>
+  );
+}
+
+function ClauseCard({ item }) {
   const [open, setOpen] = useState(false);
 
   const riskConfig = {
@@ -497,8 +587,9 @@ function ClauseCard({ item, index }) {
   return (
     <article className={`clause-card ${risk.cls}`}>
       <button
+        type="button"
         className="clause-card__header"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
       >
         <div className="clause-card__badges">
@@ -511,24 +602,66 @@ function ClauseCard({ item, index }) {
       </button>
 
       <blockquote className="clause-card__excerpt">
-        "{item.clause_text}"
+        &ldquo;
+        <TypingText as="span" text={item.clause_text} className="typing-inline" speed={10} />
+        &rdquo;
       </blockquote>
 
       {open && (
         <div className="clause-card__detail">
           <div className="detail-section">
             <h4 className="detail-section__heading">What This Means</h4>
-            <p>{item.explanation}</p>
+            <TypingText text={item.explanation} speed={14} />
           </div>
 
           {item.negotiation && String(item.negotiation).trim() && (
             <div className="detail-section detail-section--suggestion">
               <h4 className="detail-section__heading">Negotiation</h4>
-              <p>{item.negotiation}</p>
+              <TypingText text={item.negotiation} speed={14} />
             </div>
           )}
         </div>
       )}
     </article>
+  );
+}
+
+function TypingText({ text, className = '', as: asTag = 'p', speed = 16 }) {
+  const safeText = String(text || '');
+  const [visibleChars, setVisibleChars] = useState(0);
+
+  useEffect(() => {
+    setVisibleChars(0);
+
+    if (!safeText) return undefined;
+
+    const tickMs = Math.max(8, speed);
+    const step = Math.max(1, Math.ceil(safeText.length / 80));
+    let current = 0;
+
+    const timer = window.setInterval(() => {
+      current = Math.min(current + step, safeText.length);
+      setVisibleChars(current);
+
+      if (current >= safeText.length) {
+        window.clearInterval(timer);
+      }
+    }, tickMs);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [safeText, speed]);
+
+  const done = visibleChars >= safeText.length;
+  const shownText = safeText.slice(0, visibleChars);
+
+  return React.createElement(
+    asTag,
+    { className },
+    <>
+      {shownText}
+      {!done && <span className="typing-caret" aria-hidden>|</span>}
+    </>,
   );
 }
