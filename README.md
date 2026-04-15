@@ -1,106 +1,149 @@
 # ClauseIQ
+> **The on-device auditor that de-codes your contracts, not your privacy.**
 
-AI-assisted contract auditing with PDF extraction, clause parsing, and GitHub Copilot analysis.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![AI: WebLLM](https://img.shields.io/badge/AI-WebLLM-blueviolet)](https://webllm.mlc.ai/)
+[![Hardware: WebGPU](https://img.shields.io/badge/Acceleration-WebGPU-green)](https://developer.chrome.com/docs/web-platform/webgpu/)
 
-ClauseIQ is a React + Vite app for reviewing contracts. Users upload a PDF, ClauseIQ extracts text with `pdfjs-dist`, splits the document into clauses, and analyzes each clause through a local GitHub Copilot backend.
+**ClauseIQ** is a privacy-first, local-scale AI platform designed to audit freelance contracts for predatory "red flags." It is a zero-knowledge, on-device auditor that reveals hidden risks and generates negotiation power without a single byte of data ever leaving the user's machine.
+This platform will also be localized to offer **multilingual capabilities** and follow up with laws/clauses that are **jurisdiction** specific.
 
-## How It Works
 
-1. Upload a PDF contract.
-2. Extract text page by page in the browser.
-3. Split content into substantive clauses.
-4. Connect GitHub Copilot via device login.
-5. Enter a Copilot model name in the UI.
-6. Analyze clauses concurrently and stream results as each clause finishes.
-7. Show risk score summary and clause cards with typing animation.
+**Your data never leaves your machine.** No cloud. No API logs. No privacy leaks.
 
-Result shape for each clause:
+---
 
-- `clause_text`
-- `clause_type`
-- `risk_level`
-- `explanation`
-- `negotiation`
+## Tech Stack Used
 
-## Architecture
+- **Frontend Framework**: React 19
+- **Build Tool**: Vite 6
+- **Language**: JavaScript (ES Modules)
+- **AI Inference (On-Device)**: @mlc-ai/web-llm (WebLLM) with Qwen2.5-1.5B
+- **Browser Acceleration**: WebGPU
+- **Document Processing**: pdfjs-dist
+- **Concurrency**: Web Workers (`src/workers/llm.worker.js`)
+- **Code Quality**: ESLint 9
+- **Deployment**: Vercel (`vercel.json`)
 
-- Frontend: React 19 + Vite 6
-- Backend: Express 5 local service for GitHub Copilot auth and analysis
-- PDF extraction: `pdfjs-dist`
-- Copilot integration: `@github/copilot-sdk` and `@github/copilot`
+---
 
-## Environment Variables
+## ✨ Key Features
 
-Create `.env` in the project root:
+- 🔒 **100% Privacy-First**: All processing happens locally in your browser
+- 🤖 **Universal Clause Analysis**: Detects unlimited clause types (not just 4 predefined categories)
+- 🎯 **Hybrid Intelligence**: Combines LLM reasoning with 21 heuristic risk patterns
+- 📊 **Three-Tier Risk Assessment**: High, Medium, and Low risk classification
+- 🧠 **Qwen2.5-1.5B Model**: Balanced accuracy and performance for mid-range hardware
+- 🔍 **Structural Extraction**: Intelligent parsing of numbered sections, headers, and legal formatting
+- ⚡ **Graceful Fallback**: Pattern-based analysis when LLM encounters issues
+- 🌍 **Multilingual Support** (Coming Soon): Localized for multiple jurisdictions
 
-```bash
-GITHUB_COPILOT_CLIENT_ID=your_github_oauth_app_client_id_here
-GITHUB_COPILOT_DEVICE_SCOPE=read:user
-COPILOT_SERVER_PORT=8787
-MONGODB_URI=your_mongodb_uri_here
-JWT_SECRET=your_jwt_secret_here
+---
+
+## What this project does
+
+- Extracts text from uploaded PDF files with pdfjs-dist.
+- Detects OCR-needed/scanned pages when text is missing.
+- Loads a local LLM (Qwen2.5-1.5B) with @mlc-ai/web-llm in a Web Worker.
+- Shows model download/loading progress in the UI.
+- **Universal clause analysis**: Detects ALL clause types (not limited to predefined categories)
+- **Hybrid LLM + Pattern Matching**: Combines AI analysis with 21 heuristic risk patterns
+- **Three-tier risk assessment**: High, Medium, and Low risk levels
+- Structural clause extraction using regex patterns for numbered sections, headers, and legal formatting
+- Privacy-first: 100% client-side processing with no data leaving your device
+
+## Project structure
+
+```text
+clauseiq/
+	public/
+	src/
+		assets/
+		components/
+			ClauseIQ.jsx
+			UploadArea.jsx
+			ProgressIndicator.jsx
+			ResultsList.jsx
+		hooks/
+			usePDFExtractor.js
+			useWebLLM.js
+		utils/
+			constants.js
+			chunker.js
+			rag.js
+		workers/
+			llm.worker.js
+		App.jsx
+		App.css
+		index.css
+		main.jsx
+	index.html
+	package.json
+	vite.config.js
+	eslint.config.js
 ```
 
-Notes:
+## How it works
 
-- `GITHUB_COPILOT_CLIENT_ID` is required for device flow.
-- The GitHub OAuth app must support device authorization.
-- `MONGODB_URI` must be a valid MongoDB Atlas connection string.
-- `JWT_SECRET` should be a strong secret (minimum 16 characters).
-- Copilot model names are entered in the frontend, not in `.env`.
+1. Upload
+- The user drops/selects a PDF in UploadArea.
+- ClauseIQ starts extraction through usePDFExtractor.
 
-## Local Development
+2. PDF extraction
+- usePDFExtractor reads pages with pdfjs-dist.
+- Text is captured page by page, then merged.
+- If pages have no text, the app warns that scanned/image content is not fully supported.
+
+3. Model initialization
+- useWebLLM creates a dedicated worker (llm.worker.js).
+- The worker loads a local model and emits progress events.
+- The UI displays a progress bar from 0 to 100.
+- Model files are cached by WebLLM in browser storage, so repeat visits are faster.
+
+4. Universal clause analysis
+- ClauseIQ extracts ALL clauses using structural parsing (numbered sections, headers, legal formatting).
+- Substantive clauses are filtered (removes boilerplate like signatures, headers).
+- Clauses are batched (5 per batch) for optimal processing.
+- Each batch undergoes hybrid analysis:
+  - **Pattern pre-scan**: 21 heuristic patterns detect high/medium/low risk indicators
+  - **LLM analysis**: Local model analyzes clause meaning, risk level, and concerns
+  - **Validation & enrichment**: LLM output is validated and enriched with pattern matches
+  - **Graceful fallback**: If LLM fails, pattern-based analysis is used
+- Results include:
+  - Dynamic clause types (e.g., "Payment Terms", "IP Rights", "Confidentiality")
+  - Risk level (High/Medium/Low)
+  - Plain-language explanation
+  - Specific concerns array
+- Results are deduplicated, sorted by risk level, and displayed in ResultsList.
+
+## Key files
+
+- src/components/ClauseIQ.jsx
+	- Main orchestration: clause extraction, batching, hybrid analysis lifecycle
+- src/hooks/usePDFExtractor.js
+	- PDF parsing, per-page extraction, OCR-needed detection
+- src/hooks/useWebLLM.js
+	- Worker lifecycle, progress tracking, request/response API
+- src/workers/llm.worker.js
+	- Model loading (Qwen2.5-1.5B), inference, robust JSON extraction
+- src/utils/constants.js
+	- Model config, universal prompts, 21 heuristic risk patterns, helper functions
+- src/utils/rag.js
+	- Structural clause extraction, universal analysis functions, validation & enrichment
+
+## Run locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-`npm run dev` starts both:
+Then open the local Vite URL shown in the terminal.
 
-- Vite frontend
-- Copilot backend (`http://127.0.0.1:8787` by default)
+## Notes
 
-## Project Structure
+- Everything runs in-browser on the client machine.
+- No server-side API is required.
+- First model load can take time depending on device/network.
+- You can switch models in src/utils/constants.js if you want a different speed/quality tradeoff.
 
-```text
-clauseIQ/
-  server/
-    index.js
-  src/
-    components/
-      ClauseIQ.jsx
-      LandingPage.jsx
-    hooks/
-      useGitHubCopilot.js
-      usePDFExtractor.js
-    utils/
-      analysisPayload.js
-      constants.js
-      rag.js
-    App.jsx
-    main.jsx
-  .env.example
-  package.json
-  vite.config.js
-```
-
-## Key Files
-
-- `src/components/ClauseIQ.jsx`: upload, extraction lifecycle, Copilot analysis orchestration, streamed results UI.
-- `src/hooks/useGitHubCopilot.js`: Copilot auth state, device flow, backend calls.
-- `server/index.js`: auth endpoints and Copilot SDK analysis endpoint.
-- `src/utils/rag.js`: clause extraction, normalization, enrichment helpers.
-- `src/utils/constants.js`: prompts, concurrency settings, risk heuristics.
-
-## Verification
-
-```bash
-npm run lint
-npm run build
-```
-
-## Important Notes
-
-- Analysis is GitHub Copilot-only.
-- `npm run preview` serves only frontend build output and does not run the backend.

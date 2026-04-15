@@ -260,7 +260,7 @@ function extractHeader(text) {
 /**
  * Merge clauses that were incorrectly split
  */
-function _mergeSplitClauses(clauses) {
+function mergeSplitClauses(clauses) {
   const merged = [];
   let i = 0;
 

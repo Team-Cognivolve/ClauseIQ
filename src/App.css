@@ -64,17 +64,6 @@
   --trans-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.app-session-check {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #F2EEE3;
-  color: #2D2D2D;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 1rem;
-}
-
 /* ────────────────────────────────────────────────────────────
    Page shell - Dark SaaS Hero
 ──────────────────────────────────────────────────────────── */

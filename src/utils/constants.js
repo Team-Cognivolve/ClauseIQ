@@ -1,5 +1,24 @@
-export const MAX_CONCURRENT_ANALYSES = 100;
+// Low-spec default model for CPU-only laptops.
+// If you want better quality and have more RAM, move up to Qwen2.5-1.5B.
+export const MODEL_ID = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';
+export const MODEL_LABEL = 'Qwen2.5-1.5B';
+export const MODEL_SIZE_LABEL = '~1.5 GB';
 
+// Optimized for M4 MacBook Air with 16GB RAM - Neural Engine acceleration
+export const CHUNK_WORDS = 900;
+export const CHUNK_OVERLAP = 100;
+export const INFERENCE_MAX_TOKENS = 1024; 
+export const ANALYSIS_TIMEOUT_MS = 10000; 
+export const RAG_TOP_K = 14;
+export const RAG_MIN_SCORE = 1;
+export const MAX_CONCURRENT_ANALYSES = 10; 
+
+// HEURISTIC RISK PATTERNS - Pattern Matching for Risk Detection
+
+/**
+ * Regex patterns for identifying high-risk clause characteristics
+ * Used as fallback and validation for LLM analysis
+ */
 export const RISK_PATTERNS = {
   HIGH: {
     unlimitedLiability: {
@@ -112,6 +131,11 @@ export const RISK_PATTERNS = {
   },
 };
 
+/**
+ * Detect risk level of a clause using heuristic pattern matching
+ * @param {string} clauseText - The clause text to analyze
+ * @returns {{level: string, matches: Array, score: number}}
+ */
 export function detectRiskByPattern(clauseText) {
   if (!clauseText || typeof clauseText !== 'string') {
     return { level: 'Low', matches: [], score: 0 };
@@ -121,6 +145,7 @@ export function detectRiskByPattern(clauseText) {
   let highScore = 0;
   let mediumScore = 0;
 
+  // Check HIGH risk patterns
   for (const [key, pattern] of Object.entries(RISK_PATTERNS.HIGH)) {
     if (pattern.pattern.test(clauseText)) {
       matches.push({
@@ -133,6 +158,7 @@ export function detectRiskByPattern(clauseText) {
     }
   }
 
+  // Check MEDIUM risk patterns
   for (const [key, pattern] of Object.entries(RISK_PATTERNS.MEDIUM)) {
     if (pattern.pattern.test(clauseText)) {
       matches.push({
@@ -145,13 +171,15 @@ export function detectRiskByPattern(clauseText) {
     }
   }
 
+  // Check LOW risk patterns (positive signals)
   let lowScore = 0;
-  for (const pattern of Object.values(RISK_PATTERNS.LOW)) {
+  for (const [key, pattern] of Object.entries(RISK_PATTERNS.LOW)) {
     if (pattern.pattern.test(clauseText)) {
       lowScore += 1;
     }
   }
 
+  // Determine overall risk level
   let level = 'Low';
   let score = 0;
 
@@ -163,15 +191,22 @@ export function detectRiskByPattern(clauseText) {
     score = mediumScore;
   } else if (lowScore > 0) {
     level = 'Low';
-    score = -lowScore;
+    score = -lowScore; // Negative score indicates favorable
   }
 
   return { level, matches, score };
 }
 
+/**
+ * Generate fallback analysis when LLM fails or returns invalid data
+ * @param {Object} clause - Clause object with text and header
+ * @param {Object} patternResult - Result from detectRiskByPattern
+ * @returns {Object} Fallback analysis object
+ */
 export function generateFallbackAnalysis(clause, patternResult) {
-  const concerns = patternResult.matches.map((match) => match.concern);
+  const concerns = patternResult.matches.map(m => m.concern);
 
+  // Determine clause type from pattern matches or header
   let clauseType = 'General Provision';
   if (patternResult.matches.length > 0) {
     clauseType = patternResult.matches[0].type;
@@ -179,6 +214,7 @@ export function generateFallbackAnalysis(clause, patternResult) {
     clauseType = clause.header;
   }
 
+  // Generate explanation based on risk level
   let explanation = '';
   let negotiation = '';
 
@@ -188,10 +224,10 @@ export function generateFallbackAnalysis(clause, patternResult) {
       ? `I would like to discuss modifying this clause to address the following: ${concerns.join(', ').toLowerCase()}. Can we find more balanced terms?`
       : 'I have concerns about this clause and would like to discuss more balanced alternatives.';
   } else if (patternResult.level === 'Medium') {
-    explanation = 'This clause may need some clarification or adjustment. While not immediately problematic, the language could be interpreted in different ways or may create obligations that need to be clearly understood. It is worth discussing with the other party to ensure both sides have the same understanding.';
+    explanation = `This clause may need some clarification or adjustment. While not immediately problematic, the language could be interpreted in different ways or may create obligations that need to be clearly understood. It's worth discussing with the other party to ensure both sides have the same understanding.`;
     negotiation = 'Could we clarify the specific terms and conditions in this clause to ensure both parties have the same understanding?';
   } else {
-    explanation = 'This clause appears to follow standard practices and creates reasonable obligations for both parties. The terms seem balanced and should not create unexpected issues during the course of the agreement.';
+    explanation = `This clause appears to follow standard practices and creates reasonable obligations for both parties. The terms seem balanced and should not create unexpected issues during the course of the agreement.`;
     negotiation = '';
   }
 
@@ -206,15 +242,15 @@ export function generateFallbackAnalysis(clause, patternResult) {
 
 export const SYSTEM_PROMPT = `You are an expert contract analyst who explains legal clauses in plain language that anyone can understand.
 
-TASK: Analyze exactly one contract clause and explain it clearly. For risky clauses, suggest how to negotiate better terms.
+TASK: Analyze contract clauses and explain them clearly. For risky clauses, suggest how to negotiate better terms.
 
-Return ONLY one JSON object in this format:
+For EACH clause, return a JSON object:
 {
   "clause_text": "<exact text of the clause>",
   "clause_type": "<type: Payment Terms, Liability, Non-Compete, Confidentiality, IP Rights, Termination, etc.>",
   "risk_level": "High" | "Medium" | "Low",
   "explanation": "<A clear 3-5 sentence paragraph explaining what this clause actually means in everyday language. What does each party have to do? What are the consequences? What rights or restrictions does it create? Write as if explaining to a friend who has never read a contract before.>",
-  "negotiation": "<If the clause is unfair or risky, write 1-2 sentences suggesting what to say to negotiate better terms. If the clause is fair and balanced, use an empty string.>"
+  "negotiation": "<If the clause is unfair or risky, write 1-2 sentences suggesting what to say to negotiate better terms. Write it as actual words someone could use in a meeting, like: 'I propose we limit liability to fees paid rather than unlimited liability.' If the clause is fair and balanced, use empty string.>"
 }
 
 RISK LEVELS:
@@ -222,19 +258,31 @@ RISK LEVELS:
 - Medium: Potentially problematic, ambiguous language, needs clarification
 - Low: Standard industry practice, balanced and fair to both parties
 
-RULES:
-1. Explanations must be in simple, everyday language.
-2. For negotiation, write it as practical suggested dialog.
-3. If the clause is Low risk and fair, negotiation should be an empty string.
-4. Return ONLY a valid JSON object. No markdown fences, no extra text.`;
+OUTPUT: Return ONLY a valid JSON array. No markdown fences, no extra text.
 
-export function buildClauseAnalysisPrompt(clause) {
-  if (!clause || typeof clause !== 'object' || !(clause.cleanText || clause.text)) {
-    return 'No clause provided for analysis.';
+RULES:
+1. Explanations must be in simple, everyday language - no legal jargon
+2. For negotiation, write it as actual suggested dialog the person could use
+3. If clause is Low risk and fair, negotiation should be empty string ""
+4. Focus on practical real-world impact for both parties`;
+
+/**
+ * Build analysis prompt for a batch of clauses
+ * @param {Array<{text: string, header: string|null}>} clauses - Array of clause objects
+ * @returns {string} - Formatted prompt for LLM
+ */
+export function buildClauseAnalysisPrompt(clauses) {
+  if (!Array.isArray(clauses) || clauses.length === 0) {
+    return 'No clauses provided for analysis.';
   }
 
-  const header = clause.header ? `Header: ${clause.header}\n` : '';
-  const clauseText = clause.cleanText || clause.text;
+  const clauseTexts = clauses
+    .filter(clause => clause && typeof clause === 'object' && (clause.cleanText || clause.text))
+    .map((clause, index) => {
+      const header = clause.header ? `[${clause.header}]\n` : '';
+      return `CLAUSE ${index + 1}:\n${header}${clause.cleanText || clause.text}`;
+    })
+    .join('\n\n---\n\n');
 
-  return `Analyze this contract clause.\n\n${header}Clause Text:\n${clauseText}\n\nReturn exactly one JSON object.`;
+  return `Analyze the following contract clauses:\n\n${clauseTexts}\n\nProvide risk assessment for each clause in JSON array format.`;
 }
