@@ -1,0 +1,105 @@
+.b2b-auth {
+  min-height: 100vh;
+  background: #f2eee3;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.b2b-auth__panel {
+  width: min(620px, 96vw);
+  border: 1px solid rgba(45, 45, 45, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 1.2rem;
+}
+
+.b2b-auth__back {
+  border: 1px solid rgba(45, 45, 45, 0.14);
+  border-radius: 8px;
+  background: transparent;
+  color: #2d2d2d;
+  padding: 0.44rem 0.68rem;
+  margin-bottom: 0.8rem;
+  font-family: 'Manrope', sans-serif;
+  font-weight: 600;
+}
+
+.b2b-auth__eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.76rem;
+  color: #5a6159;
+  font-family: 'Manrope', sans-serif;
+  font-weight: 700;
+}
+
+.b2b-auth__title {
+  margin: 0.2rem 0;
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  font-weight: 500;
+  color: #2d2d2d;
+}
+
+.b2b-auth__subtitle {
+  margin: 0 0 1rem;
+  color: #5a6159;
+}
+
+.b2b-auth__form {
+  display: grid;
+  gap: 0.68rem;
+}
+
+.b2b-auth__form label {
+  display: grid;
+  gap: 0.3rem;
+  font-family: 'Manrope', sans-serif;
+  font-size: 0.9rem;
+}
+
+.b2b-auth__form input {
+  border: 1px solid rgba(45, 45, 45, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #2d2d2d;
+  padding: 0.62rem 0.7rem;
+}
+
+.b2b-auth__form button {
+  border: 1px solid rgba(45, 45, 45, 0.2);
+  border-radius: 12px;
+  background: linear-gradient(105.1deg, #5f5e5e 0%, #2d2d2d 100%);
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: 'Manrope', sans-serif;
+  font-weight: 700;
+  padding: 0.72rem 0.8rem;
+}
+
+.b2b-auth__form button:disabled {
+  opacity: 0.75;
+}
+
+.b2b-auth__error {
+  margin: 0;
+  color: #9e422c;
+  font-size: 0.88rem;
+}
+
+.b2b-auth__switch {
+  margin: 0.85rem 0 0;
+  color: #5a6159;
+}
+
+.b2b-auth__switch button {
+  border: 0;
+  background: transparent;
+  color: #2d2d2d;
+  font-family: 'Manrope', sans-serif;
+  font-weight: 700;
+  text-decoration: underline;
+}
