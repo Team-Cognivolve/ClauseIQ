@@ -68,9 +68,28 @@ const COUNTRY_ALIASES = new Map([
   ['new zealand', 'New Zealand'],
   ['singapore', 'Singapore'],
   ['japan', 'Japan'],
+  ['china', 'China'],
+  ['people\'s republic of china', 'China'],
+  ['prc', 'China'],
+  ['south korea', 'South Korea'],
+  ['republic of korea', 'South Korea'],
+  ['korea, republic of', 'South Korea'],
   ['germany', 'Germany'],
   ['france', 'France'],
+  ['spain', 'Spain'],
+  ['italy', 'Italy'],
+  ['switzerland', 'Switzerland'],
   ['netherlands', 'Netherlands'],
+  ['sweden', 'Sweden'],
+  ['norway', 'Norway'],
+  ['denmark', 'Denmark'],
+  ['belgium', 'Belgium'],
+  ['austria', 'Austria'],
+  ['brazil', 'Brazil'],
+  ['mexico', 'Mexico'],
+  ['saudi arabia', 'Saudi Arabia'],
+  ['ksa', 'Saudi Arabia'],
+  ['south africa', 'South Africa'],
   ['united arab emirates', 'United Arab Emirates'],
   ['uae', 'United Arab Emirates'],
 ]);
@@ -80,6 +99,177 @@ const JURISDICTION_TOPIC_LABELS = {
   paymentNotice: 'payment and notice',
   taxCompliance: 'tax and compliance',
 };
+
+const COUNTRY_GOVERNMENT_DOMAINS = new Map([
+  ['united states', [
+    'dol.gov',
+    'irs.gov',
+    'ecfr.gov',
+    'federalregister.gov',
+    'justice.gov',
+    'congress.gov',
+    'nlrb.gov',
+    'eeoc.gov',
+    'uscourts.gov',
+  ]],
+  ['india', [
+    'labour.gov.in',
+    'incometax.gov.in',
+    'cbdt.gov.in',
+    'egazette.gov.in',
+    'legislative.gov.in',
+    'epfindia.gov.in',
+    'indiacode.nic.in',
+  ]],
+  ['singapore', [
+    'mom.gov.sg',
+    'iras.gov.sg',
+    'statutes.agc.gov.sg',
+    'mof.gov.sg',
+    'mlaw.gov.sg',
+    'go.gov.sg',
+  ]],
+  ['united kingdom', [
+    'gov.uk',
+    'legislation.gov.uk',
+    'hmrc.gov.uk',
+    'acas.org.uk',
+  ]],
+  ['canada', [
+    'canada.ca',
+    'justice.gc.ca',
+    'laws-lois.justice.gc.ca',
+    'cra-arc.gc.ca',
+    'gazette.gc.ca',
+  ]],
+  ['australia', [
+    'fairwork.gov.au',
+    'ato.gov.au',
+    'legislation.gov.au',
+    'fwc.gov.au',
+  ]],
+  ['new zealand', [
+    'employment.govt.nz',
+    'ird.govt.nz',
+    'legislation.govt.nz',
+    'mbie.govt.nz',
+  ]],
+  ['china', [
+    'gov.cn',
+    'mohrss.gov.cn',
+    'chinatax.gov.cn',
+    'npc.gov.cn',
+  ]],
+  ['south korea', [
+    'moel.go.kr',
+    'nts.go.kr',
+    'law.go.kr',
+    'moef.go.kr',
+  ]],
+  ['germany', [
+    'gesetze-im-internet.de',
+    'bundesregierung.de',
+    'bmj.de',
+    'zoll.de',
+    'arbeitsagentur.de',
+  ]],
+  ['france', [
+    'legifrance.gouv.fr',
+    'travail-emploi.gouv.fr',
+    'impots.gouv.fr',
+  ]],
+  ['spain', [
+    'boe.es',
+    'mites.gob.es',
+    'hacienda.gob.es',
+    'agenciatributaria.gob.es',
+  ]],
+  ['italy', [
+    'gazzettaufficiale.it',
+    'lavoro.gov.it',
+    'agenziaentrate.gov.it',
+    'normattiva.it',
+  ]],
+  ['switzerland', [
+    'admin.ch',
+    'seco.admin.ch',
+    'estv.admin.ch',
+  ]],
+  ['netherlands', [
+    'government.nl',
+    'rijksoverheid.nl',
+    'belastingdienst.nl',
+  ]],
+  ['sweden', [
+    'regeringen.se',
+    'riksdagen.se',
+    'skatteverket.se',
+    'av.se',
+  ]],
+  ['norway', [
+    'regjeringen.no',
+    'lovdata.no',
+    'skatteetaten.no',
+    'arbeidstilsynet.no',
+  ]],
+  ['denmark', [
+    'retsinformation.dk',
+    'skat.dk',
+    'bm.dk',
+    'workindenmark.dk',
+  ]],
+  ['belgium', [
+    'belgium.be',
+    'fin.belgium.be',
+    'emploi.belgique.be',
+    'ejustice.just.fgov.be',
+  ]],
+  ['austria', [
+    'ris.bka.gv.at',
+    'bmf.gv.at',
+    'oesterreich.gv.at',
+  ]],
+  ['ireland', [
+    'gov.ie',
+    'revenue.ie',
+    'workplacerelations.ie',
+  ]],
+  ['brazil', [
+    'gov.br',
+    'planalto.gov.br',
+    'receitafederal.gov.br',
+    'camara.leg.br',
+  ]],
+  ['mexico', [
+    'gob.mx',
+    'sat.gob.mx',
+    'diputados.gob.mx',
+    'dof.gob.mx',
+  ]],
+  ['saudi arabia', [
+    'gov.sa',
+    'mhrsd.gov.sa',
+    'zatca.gov.sa',
+  ]],
+  ['south africa', [
+    'gov.za',
+    'labour.gov.za',
+    'sars.gov.za',
+    'justice.gov.za',
+  ]],
+  ['united arab emirates', [
+    'u.ae',
+    'mohre.gov.ae',
+    'tax.gov.ae',
+    'moj.gov.ae',
+  ]],
+  ['japan', [
+    'mhlw.go.jp',
+    'nta.go.jp',
+    'elaws.e-gov.go.jp',
+    'mof.go.jp',
+  ]],
+]);
 
 const userSchema = new mongoose.Schema(
   {
@@ -444,39 +634,118 @@ function buildJurisdictionPairKey(governingCountry, freelancerCountry) {
   return `${String(governingCountry || '').toLowerCase()}::${String(freelancerCountry || '').toLowerCase()}`;
 }
 
-async function searchTavily(query) {
-  const response = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      api_key: tavilyApiKey,
-      query,
-      search_depth: 'basic',
-      max_results: 3,
-      include_answer: false,
-      include_images: false,
-    }),
-  });
+function normalizeHost(value) {
+  return String(value || '').trim().toLowerCase().replace(/^www\./, '');
+}
 
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message = data?.detail || data?.error || 'Tavily request failed.';
-    throw new Error(message);
+function getGovernmentDomainsForCountry(country) {
+  const key = String(country || '').trim().toLowerCase();
+  const domains = COUNTRY_GOVERNMENT_DOMAINS.get(key) || [];
+  return domains.map((domain) => normalizeHost(domain)).filter(Boolean);
+}
+
+function isAllowedGovernmentDomain(hostname, allowedDomains) {
+  if (!hostname || !Array.isArray(allowedDomains) || allowedDomains.length === 0) return false;
+
+  return allowedDomains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+}
+
+function isGovernmentLikeHostname(hostname) {
+  if (!hostname) return false;
+
+  return (
+    /(^|\.)gov\.[a-z]{2,}$/i.test(hostname)
+    || /(^|\.)govt\.[a-z]{2,}$/i.test(hostname)
+    || /(^|\.)gouv\.fr$/i.test(hostname)
+    || /(^|\.)gc\.ca$/i.test(hostname)
+    || hostname === 'canada.ca'
+    || hostname.endsWith('.canada.ca')
+    || hostname === 'gov.ie'
+    || hostname.endsWith('.gov.ie')
+    || hostname === 'government.nl'
+    || hostname.endsWith('.government.nl')
+    || hostname === 'rijksoverheid.nl'
+    || hostname.endsWith('.rijksoverheid.nl')
+    || hostname === 'u.ae'
+    || hostname.endsWith('.u.ae')
+    || hostname === 'go.jp'
+    || hostname.endsWith('.go.jp')
+  );
+}
+
+function isOfficialGovernmentUrl(url, allowedDomains = []) {
+  const value = String(url || '').trim();
+  if (!value) return false;
+
+  try {
+    const parsed = new URL(value);
+    const hostname = normalizeHost(parsed.hostname);
+    if (!hostname) return false;
+
+    if (isAllowedGovernmentDomain(hostname, allowedDomains)) {
+      return true;
+    }
+
+    return isGovernmentLikeHostname(hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function searchTavily(query, options = {}) {
+  const allowedDomains = [...new Set(
+    (Array.isArray(options?.allowedDomains) ? options.allowedDomains : [])
+      .map((domain) => normalizeHost(domain))
+      .filter(Boolean),
+  )];
+
+  const runSearch = async (includeDomains = []) => {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: tavilyApiKey,
+        query,
+        search_depth: 'advanced',
+        max_results: 16,
+        include_answer: false,
+        include_images: false,
+        ...(includeDomains.length > 0 ? { include_domains: includeDomains } : {}),
+      }),
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const message = data?.detail || data?.error || 'Tavily request failed.';
+      throw new Error(message);
+    }
+
+    const items = Array.isArray(data?.results) ? data.results : [];
+    return items
+      .map((item) => ({
+        title: safeTrimmedString(item?.title, '', 180),
+        url: safeTrimmedString(item?.url, '', 500),
+        content: safeTrimmedString(item?.content, '', 800),
+      }))
+      .filter((item) => isOfficialGovernmentUrl(item.url, includeDomains))
+      .slice(0, 5);
+  };
+
+  if (allowedDomains.length > 0) {
+    const strict = await runSearch(allowedDomains);
+    if (strict.length > 0) {
+      return strict;
+    }
   }
 
-  const items = Array.isArray(data?.results) ? data.results : [];
-  return items.map((item) => ({
-    title: safeTrimmedString(item?.title, '', 180),
-    url: safeTrimmedString(item?.url, '', 500),
-    content: safeTrimmedString(item?.content, '', 800),
-  }));
+  return runSearch([]);
 }
 
 function summarizeJurisdictionResearch(results, fallbackTitle) {
   const top = Array.isArray(results)
-    ? results.slice(0, 3).map((item) => ({
+    ? results.slice(0, 5).map((item) => ({
       title: safeTrimmedString(item?.title, '', 180),
       url: safeTrimmedString(item?.url, '', 500),
       snippet: safeTrimmedString(item?.content, '', 260),
@@ -510,14 +779,18 @@ async function getOrCreateJurisdictionSummary({ governingCountry, freelancerCoun
     };
   }
 
-  const nonCompeteQuery = `Enforceability of non-compete clauses for independent contractors in ${governingCountry} 2026.`;
-  const paymentNoticeQuery = `Minimum notice period and payment protection laws for freelancers in ${governingCountry}.`;
-  const taxComplianceQuery = `Withholding tax (TDS) requirements for international contractors paying from ${freelancerCountry} to ${governingCountry}.`;
+  const governingGovernmentDomains = getGovernmentDomainsForCountry(governingCountry);
+  const freelancerGovernmentDomains = getGovernmentDomainsForCountry(freelancerCountry);
+  const combinedGovernmentDomains = [...new Set([...governingGovernmentDomains, ...freelancerGovernmentDomains])];
+
+  const nonCompeteQuery = `Official government guidance on enforceability of non-compete clauses for independent contractors in ${governingCountry} 2026.`;
+  const paymentNoticeQuery = `Official government rules on minimum notice period and payment protections for freelancers in ${governingCountry}.`;
+  const taxComplianceQuery = `Official government tax authority guidance on withholding tax requirements for payments from ${freelancerCountry} to independent contractors in ${governingCountry}.`;
 
   const [nonCompeteResults, paymentNoticeResults, taxComplianceResults] = await Promise.all([
-    searchTavily(nonCompeteQuery),
-    searchTavily(paymentNoticeQuery),
-    searchTavily(taxComplianceQuery),
+    searchTavily(nonCompeteQuery, { allowedDomains: governingGovernmentDomains }),
+    searchTavily(paymentNoticeQuery, { allowedDomains: governingGovernmentDomains }),
+    searchTavily(taxComplianceQuery, { allowedDomains: combinedGovernmentDomains }),
   ]);
 
   const summaries = {
