@@ -6,63 +6,81 @@ import loginIcon from '../assets/icon3.svg';
 
 const pricingPlans = [
   {
-    title: "Free",
-    price: "₹0",
-    description: "Perfect for students and first-time interns.",
+    title: 'Free Plan',
+    price: 'INR 0',
+    period: '',
+    description: 'Best for first-time users who review only a few contracts.',
     features: [
-      "GitHub Copilot Analysis",
-      "Clause Extraction",
-      "Basic Negotiation Tips",
-      "Export Results (PDF/Text)",
-      "Copilot Device Login",
+      '3 contract reviews total',
+      '1 jurisdiction check total',
+      'No card required',
+      'Full contract workflow access',
     ],
-    limitations: "Slower processing, 5-page PDF limit",
-    buttonText: "Get Started",
-    highlight: false
+    limitations: 'After free quota, continue using wallet pricing.',
+    buttonText: 'Start Free',
+    highlight: false,
   },
   {
-    title: "Developer",
-    price: "₹499",
-    description: "For power users who want speed and depth.",
+    title: 'PAYG Wallet',
+    price: 'INR 99',
+    period: 'minimum top-up',
+    description: 'Pay only when you use the platform, ideal for low monthly volume.',
     features: [
-      "Everything in Free",
-      "Bring Your Own API Key (BYOK)",
-      "Interactive Contract Chatbot",
-      "Visual 'Red Flag' Overlay",
-      "Automatic PII Masking/Demasking",
+      'Wallet validity: 6 months',
+      'Domestic contract review: INR 19',
+      'Jurisdiction add-on (triggered only): INR 15',
+      'Cross-border effective charge: INR 34',
     ],
-    limitations: "Unlimited pages (based on your API)",
-    buttonText: "Go Pro",
-    highlight: true
+    limitations: 'Charges apply per review based on usage.',
+    buttonText: 'Use PAYG',
+    highlight: true,
   },
   {
-    title: "Premium",
-    price: "₹999",
-    description: "The ultimate legal shield for professionals.",
+    title: 'Light Membership',
+    price: 'INR 99',
+    period: '/month',
+    description: 'For repeat users who want lower overage pricing every month.',
     features: [
-      "Everything in Developer",
-      "Premium LLM Access (Claude/Gemini Pro)",
-      "Multi-Contract Comparison",
-      "Multi-lingual Support",
-      "Jurisdiction & Compliance Check",
+      'Includes 3 reviews per month',
+      'Additional domestic review: INR 15',
+      'Jurisdiction add-on: INR 12',
+      'Designed for recurring freelancers and teams',
     ],
-    limitations: "Priority Processing",
-    buttonText: "Upgrade to Premium",
-    highlight: false
-  }
+    limitations: 'Use PAYG alongside membership for variable volume.',
+    buttonText: 'Start Membership',
+    highlight: false,
+  },
+];
+
+const b2bPlans = [
+  {
+    title: 'Starter',
+    price: 'INR 3,999/month',
+    detail: '5 seats · 400 reviews · 120 jurisdiction scouts',
+  },
+  {
+    title: 'Growth',
+    price: 'INR 11,999/month',
+    detail: '20 seats · 1,800 reviews · 540 jurisdiction scouts',
+  },
+  {
+    title: 'Scale',
+    price: 'INR 29,999/month',
+    detail: '75 seats · 5,000 reviews · 1,500 jurisdiction scouts',
+  },
 ];
 
 function PricingCard({ plan, onClick, featured }) {
   return (
     <div className={`pricing-card ${featured ? 'pricing-card--featured' : ''}`}>
-      {featured && <div className="pricing-card__badge">Recommended</div>}
+      {featured && <div className="pricing-card__badge">Most Popular</div>}
       <h3 className="pricing-card__title">{plan.title}</h3>
       <div className="pricing-card__price">
         <span className="pricing-card__amount">{plan.price}</span>
-        {plan.price !== "₹0" && <span className="pricing-card__period">/month</span>}
+        {plan.period && <span className="pricing-card__period">{plan.period}</span>}
       </div>
       <p className="pricing-card__description">{plan.description}</p>
-      <button className="pricing-card__button" onClick={onClick}>
+      <button className="pricing-card__button" onClick={onClick || (() => null)}>
         {plan.buttonText}
       </button>
       <div className="pricing-card__features">
@@ -91,51 +109,74 @@ export function LandingPage({ onEnterApp }) {
         <div className="landing-nav__container">
           <div className="landing-nav__logo">ClauseIQ</div>
           <ul className="landing-nav__links">
-            <li><a href="#product">PRODUCT</a></li>
-            <li><a href="#intelligence">INTELLIGENCE</a></li>
-            <li><a href="#company">COMPANY</a></li>
-            <li><a href="#pricing">PRICING</a></li>
+            <li><a href="#product">Solutions</a></li>
+            <li><a href="#intelligence">Intelligence</a></li>
+            <li><a href="#company">Compliance</a></li>
+            <li><a href="#pricing">Pricing</a></li>
           </ul>
-          <button className="landing-nav__cta" onClick={onEnterApp}>
-            GET STARTED
-          </button>
+          <div className="landing-nav__actions">
+            <button type="button" className="landing-nav__signin" onClick={onEnterApp}>Sign In</button>
+            <button className="landing-nav__cta" onClick={onEnterApp}>Get Started</button>
+          </div>
         </div>
       </nav>
 
       {/* Hero Section */}
       <section className="hero">
         <div className="hero__content">
+          <div className="hero__pill" aria-label="feature-introduction">
+            <span className="hero__pill-icon" aria-hidden>⚡</span>
+            Introducing AI-Powered Risk Scoring
+          </div>
+
           <h1 className="hero__headline">
-            Legal expertise, <span className="hero__headline-accent">quantified.</span>
+            Surgical Precision for
+            <span className="hero__headline-accent">Modern Contract Intelligence.</span>
           </h1>
+
           <p className="hero__description">
-            ClauseIQ delivers institutional-grade contract intelligence. Our proprietary risk engine
-            processes complex legal documents with the precision of a senior partner and the speed of
-            modern infrastructure.
+            ClauseIQ automates the extraction, analysis, and risk scoring of
+            complex legal agreements. Built for high-stakes environments
+            where accuracy is non-negotiable.
           </p>
+
           <div className="hero__ctas">
             <button className="hero__cta-primary" onClick={onEnterApp}>
-              TRY IT NOW
+              Start Free Trial <span aria-hidden>→</span>
             </button>
             <a href="#intelligence" className="hero__cta-link">
-              EXPLORE METHOD <span className="hero__cta-arrow">↗</span>
+              View Documentation
             </a>
           </div>
         </div>
 
-        {/* Glass Card Preview */}
+        {/* Document Preview */}
         <div className="hero__preview-card">
-          <div className="preview-card__header">
-            <span className="preview-card__badge">CRITICAL EXPOSURE</span>
-            <span className="preview-card__risk">High Risk</span>
+          <div className="preview-card__topbar">
+            <div className="preview-card__dots" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </div>
+            <span className="preview-card__filename">Master_Services_Agreement_v4.pdf</span>
           </div>
           <div className="preview-card__content">
+            <div className="preview-card__title-row">
+              <h3 className="preview-card__title">Indemnification Clause</h3>
+              <span className="preview-card__risk">
+                <span aria-hidden>⚠</span> High Risk
+              </span>
+            </div>
+
             <p className="preview-card__clause">
-              "The indemnifying party shall defend, indemnify, and hold harmless..."
+              Provider shall indemnify, defend, and hold harmless Client from and against any
+              and all claims, <mark>damages, liabilities, costs, and expenses (including reasonable</mark>
+              <mark>attorneys&apos; fees)</mark> arising out of or related to...
             </p>
+
             <div className="preview-card__analysis">
-              <span className="preview-card__label">Liability Cap</span>
-              <span className="preview-card__value">Unlimited</span>
+              <span className="preview-card__label">ANALYSIS</span>
+              <span className="preview-card__value">Missing standard liability cap. Recommended limitation to 12 months fees.</span>
             </div>
           </div>
         </div>
@@ -145,24 +186,20 @@ export function LandingPage({ onEnterApp }) {
       <section className="stats" id="product">
         <div className="stats__container">
           <div className="stat-item">
-            <span className="stat-item__value">&lt;10s</span>
-            <span className="stat-item__label">Analysis Speed</span>
-            <span className="stat-item__sublabel">Average processing time</span>
+            <span className="stat-item__value">90%</span>
+            <span className="stat-item__label">FASTER REVIEWS</span>
           </div>
           <div className="stat-item">
-            <span className="stat-item__value">99.8%</span>
-            <span className="stat-item__label">Accuracy Rate</span>
-            <span className="stat-item__sublabel">Clause identification</span>
+            <span className="stat-item__value">10k+</span>
+            <span className="stat-item__label">CONTRACTS ANALYZED</span>
           </div>
           <div className="stat-item">
-            <span className="stat-item__value">50M+</span>
-            <span className="stat-item__label">Precedents</span>
-            <span className="stat-item__sublabel">Legal document corpus</span>
+            <span className="stat-item__value">99.9%</span>
+            <span className="stat-item__label">EXTRACTION ACCURACY</span>
           </div>
-          <div className="stat-item stat-item--highlight">
-            <span className="stat-item__value">Elite</span>
-            <span className="stat-item__label">Trust Index</span>
-            <span className="stat-item__sublabel">Industry benchmark</span>
+          <div className="stat-item">
+            <span className="stat-item__value">SOC2</span>
+            <span className="stat-item__label">CERTIFIED SECURITY</span>
           </div>
         </div>
       </section>
@@ -288,13 +325,29 @@ export function LandingPage({ onEnterApp }) {
       <section className="pricing" id="pricing">
         <div className="pricing__container">
           <div className="pricing__header">
-            <h2 className="pricing__title">Simple, Transparent Pricing</h2>
-            <p className="pricing__subtitle">Choose the plan that works for you</p>
+            <h2 className="pricing__title">Pricing Designed for India-First Adoption</h2>
+            <p className="pricing__subtitle">B2C uses Free + PAYG + optional membership. B2B remains subscription-led.</p>
           </div>
           <div className="pricing__grid">
             <PricingCard plan={pricingPlans[0]} onClick={onEnterApp} />
-            <PricingCard plan={pricingPlans[1]} featured />
-            <PricingCard plan={pricingPlans[2]} />
+            <PricingCard plan={pricingPlans[1]} onClick={onEnterApp} featured />
+            <PricingCard plan={pricingPlans[2]} onClick={onEnterApp} />
+          </div>
+
+          <div className="pricing-b2b">
+            <h3 className="pricing-b2b__title">B2B Compliance Workspace Plans</h3>
+            <div className="pricing-b2b__grid">
+              {b2bPlans.map((plan) => (
+                <article key={plan.title} className="pricing-b2b__card">
+                  <h4>{plan.title}</h4>
+                  <p className="pricing-b2b__price">{plan.price}</p>
+                  <p className="pricing-b2b__detail">{plan.detail}</p>
+                </article>
+              ))}
+            </div>
+            <p className="pricing-b2b__overage">
+              Overage pricing: INR 7 per additional contract review and INR 5 per additional jurisdiction scout.
+            </p>
           </div>
         </div>
       </section>
@@ -318,8 +371,14 @@ export function LandingPage({ onEnterApp }) {
       {/* Footer */}
       <footer className="landing-footer">
         <div className="landing-footer__bottom">
-          <p>2026 ClauseIQ. All rights Reserved.</p>
-          <span className="landing-footer__logo-right">ClauseIQ</span>
+          <span className="landing-footer__logo-left">CLAUSEIQ</span>
+          <p>© 2026 CLAUSEIQ SYSTEMS. PRECISION COMPLIANCE ENGINEERING.</p>
+          <div className="landing-footer__links">
+            <a href="#">PRIVACY POLICY</a>
+            <a href="#">TERMS OF SERVICE</a>
+            <a href="#">SECURITY</a>
+            <a href="#">CONTACT</a>
+          </div>
         </div>
       </footer>
     </div>
