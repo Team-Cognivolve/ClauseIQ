@@ -475,9 +475,15 @@ async function searchTavily(query) {
 }
 
 function summarizeJurisdictionResearch(results, fallbackTitle) {
-  const top = Array.isArray(results) ? results.slice(0, 2) : [];
+  const top = Array.isArray(results)
+    ? results.slice(0, 3).map((item) => ({
+      title: safeTrimmedString(item?.title, '', 180),
+      url: safeTrimmedString(item?.url, '', 500),
+      snippet: safeTrimmedString(item?.content, '', 260),
+    }))
+    : [];
   const snippets = top
-    .map((item) => safeTrimmedString(item?.content, '', 260))
+    .map((item) => item.snippet)
     .filter(Boolean);
 
   const text = snippets.length
@@ -487,6 +493,7 @@ function summarizeJurisdictionResearch(results, fallbackTitle) {
   return {
     text,
     referenceUrl: safeTrimmedString(top[0]?.url, '', 500),
+    sources: top,
   };
 }
 
@@ -496,7 +503,11 @@ async function getOrCreateJurisdictionSummary({ governingCountry, freelancerCoun
   const pairKey = buildJurisdictionPairKey(governingCountry, freelancerCountry);
   const cached = jurisdictionPairCache.get(pairKey);
   if (cached && Date.now() - cached.createdAt <= JURISDICTION_PAIR_CACHE_TTL_MS) {
-    return { summaries: cached.summaries, cacheHit: true };
+    return {
+      summaries: cached.summaries,
+      insights: Array.isArray(cached.insights) ? cached.insights : [],
+      cacheHit: true,
+    };
   }
 
   const nonCompeteQuery = `Enforceability of non-compete clauses for independent contractors in ${governingCountry} 2026.`;
@@ -515,12 +526,37 @@ async function getOrCreateJurisdictionSummary({ governingCountry, freelancerCoun
     taxCompliance: summarizeJurisdictionResearch(taxComplianceResults, 'tax/compliance'),
   };
 
+  const insights = [
+    {
+      topic: 'nonCompete',
+      label: 'Non-compete',
+      query: nonCompeteQuery,
+      summary: summaries.nonCompete.text,
+      sources: summaries.nonCompete.sources || [],
+    },
+    {
+      topic: 'paymentNotice',
+      label: 'Payment and Notice',
+      query: paymentNoticeQuery,
+      summary: summaries.paymentNotice.text,
+      sources: summaries.paymentNotice.sources || [],
+    },
+    {
+      topic: 'taxCompliance',
+      label: 'Tax and Compliance',
+      query: taxComplianceQuery,
+      summary: summaries.taxCompliance.text,
+      sources: summaries.taxCompliance.sources || [],
+    },
+  ];
+
   jurisdictionPairCache.set(pairKey, {
     createdAt: Date.now(),
     summaries,
+    insights,
   });
 
-  return { summaries, cacheHit: false };
+  return { summaries, insights, cacheHit: false };
 }
 
 function resolveCopilotContext(req) {
@@ -1935,6 +1971,7 @@ app.post('/api/github-copilot/jurisdiction-scout', requireAuth, async (req, res)
       contextId,
       message: 'Jurisdiction scout triggered: cross-border mismatch detected and legal context prepared.',
       cacheHit: summaryResponse.cacheHit,
+      jurisdictionInsights: summaryResponse.insights,
       governingLaw: {
         location: governingLaw.location,
         country: governingLaw.country,

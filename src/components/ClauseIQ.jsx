@@ -34,6 +34,10 @@ function createInitialJurisdictionStatus() {
     triggered: false,
     contextId: '',
     message: 'Jurisdiction scout has not run for this contract yet.',
+    cacheHit: false,
+    governingLaw: null,
+    freelancerResidence: null,
+    insights: [],
   };
 }
 
@@ -333,6 +337,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
               triggered: false,
               contextId: '',
               message: 'Jurisdiction scout is checking governing law and freelancer residence.',
+              cacheHit: false,
+              governingLaw: null,
+              freelancerResidence: null,
+              insights: [],
             });
           }
 
@@ -354,6 +362,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                 message: scout?.message || (scout?.triggered
                   ? 'Jurisdiction scout triggered for cross-border review.'
                   : 'Jurisdiction scout skipped for this contract.'),
+                cacheHit: Boolean(scout?.cacheHit),
+                governingLaw: scout?.governingLaw || null,
+                freelancerResidence: scout?.freelancerResidence || null,
+                insights: Array.isArray(scout?.jurisdictionInsights) ? scout.jurisdictionInsights : [],
               });
             }
           } catch (error) {
@@ -363,6 +375,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                 triggered: false,
                 contextId: '',
                 message: error.message || 'Jurisdiction scout failed. Continuing with standard analysis.',
+                cacheHit: false,
+                governingLaw: null,
+                freelancerResidence: null,
+                insights: [],
               });
             }
           }
@@ -373,6 +389,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
               triggered: false,
               contextId: '',
               message: 'Jurisdiction scout is disabled. Running standard clause analysis workflow.',
+              cacheHit: false,
+              governingLaw: null,
+              freelancerResidence: null,
+              insights: [],
             });
           } else {
             setJurisdictionStatus({
@@ -380,6 +400,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
               triggered: false,
               contextId: '',
               message: 'Jurisdiction scout skipped because GitHub Copilot is not connected.',
+              cacheHit: false,
+              governingLaw: null,
+              freelancerResidence: null,
+              insights: [],
             });
           }
         }
@@ -647,6 +671,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   }, [results]);
 
   const keyInsights = useMemo(() => buildDocumentInsights(pdf.text), [pdf.text]);
+  const jurisdictionInsights = Array.isArray(jurisdictionStatus.insights) ? jurisdictionStatus.insights : [];
+  const hasJurisdictionInsights = jurisdictionInsights.length > 0;
+  const governingCountryLabel = jurisdictionStatus.governingLaw?.country || jurisdictionStatus.governingLaw?.location || '';
+  const residenceCountryLabel = jurisdictionStatus.freelancerResidence?.country || jurisdictionStatus.freelancerResidence?.location || '';
 
   const hasUploadedFile = Boolean(selectedFile);
   const hasResults = Array.isArray(results) && results.length > 0;
@@ -1193,6 +1221,40 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                   </button>
                 )}
               </section>
+
+              {isJurisdictionEnabled && (
+                <section className="insights-card jurisdiction-insights-card">
+                  <h2 className="insights-card__title">Jurisdiction Insights</h2>
+
+                  {governingCountryLabel && residenceCountryLabel && (
+                    <p className="jurisdiction-insights-card__meta">
+                      Governing Law: <strong>{governingCountryLabel}</strong> | Freelancer Residence: <strong>{residenceCountryLabel}</strong>
+                    </p>
+                  )}
+
+                  {jurisdictionStatus.status === 'running' && (
+                    <p className="insights-card__empty">Fetching Tavily legal research for cross-border terms...</p>
+                  )}
+
+                  {hasJurisdictionInsights && (
+                    <div className="jurisdiction-insights-list">
+                      {jurisdictionInsights.map((insight, index) => (
+                        <JurisdictionInsightItem key={`${insight.topic || insight.label || 'topic'}-${index}`} insight={insight} />
+                      ))}
+                    </div>
+                  )}
+
+                  {jurisdictionStatus.status !== 'running' && !hasJurisdictionInsights && (
+                    <p className="insights-card__empty">
+                      {jurisdictionStatus.message || 'Jurisdiction insights will appear here when cross-border Tavily research is available.'}
+                    </p>
+                  )}
+
+                  {jurisdictionStatus.cacheHit && jurisdictionStatus.status === 'triggered' && (
+                    <p className="jurisdiction-insights-card__cache">Using cached Tavily research for this country pair.</p>
+                  )}
+                </section>
+              )}
             </aside>
           </>
         )}
@@ -1223,6 +1285,58 @@ function InsightItem({ insight }) {
       </button>
 
       {open && <p className="insight-item__detail">{insight.detail}</p>}
+    </article>
+  );
+}
+
+function JurisdictionInsightItem({ insight }) {
+  const [open, setOpen] = useState(false);
+  const sources = Array.isArray(insight?.sources) ? insight.sources.filter((source) => source?.url || source?.snippet || source?.title) : [];
+
+  return (
+    <article className={`insight-item ${open ? 'insight-item--open' : ''}`}>
+      <button type="button" className="insight-item__trigger" onClick={() => setOpen((value) => !value)}>
+        <div className="insight-item__heading">
+          <span className="insight-item__initials">JR</span>
+          <h3 className="insight-item__title">{insight?.label || 'Jurisdiction Topic'}</h3>
+        </div>
+        <span className="insight-item__chevron">{open ? '▼' : '▶'}</span>
+      </button>
+
+      {open && (
+        <div className="jurisdiction-insight-item__body">
+          <p className="insight-item__detail jurisdiction-insight-item__summary">{insight?.summary || 'No Tavily summary available for this topic yet.'}</p>
+
+          {sources.length > 0 ? (
+            <div className="jurisdiction-source-list">
+              {sources.map((source, index) => (
+                source.url ? (
+                  <a
+                    key={`${source.url}-${index}`}
+                    className="jurisdiction-source-link"
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <span className="jurisdiction-source-link__title">{source.title || source.url || `Source ${index + 1}`}</span>
+                    {source.snippet && <span className="jurisdiction-source-link__snippet">{source.snippet}</span>}
+                  </a>
+                ) : (
+                  <div
+                    key={`source-${index}`}
+                    className="jurisdiction-source-link"
+                  >
+                    <span className="jurisdiction-source-link__title">{source.title || `Source ${index + 1}`}</span>
+                    {source.snippet && <span className="jurisdiction-source-link__snippet">{source.snippet}</span>}
+                  </div>
+                )
+              ))}
+            </div>
+          ) : (
+            <p className="insights-card__empty">No direct Tavily sources were returned for this topic.</p>
+          )}
+        </div>
+      )}
     </article>
   );
 }
