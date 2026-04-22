@@ -165,7 +165,7 @@ export function useGitHubCopilot() {
     });
   }, []);
 
-  const analyzeClause = useCallback(async (clause, modelName) => {
+  const analyzeClause = useCallback(async (clause, modelName, options = {}) => {
     if (!accessToken) {
       throw new Error('Authenticate with GitHub Copilot before analyzing clauses.');
     }
@@ -174,6 +174,8 @@ export function useGitHubCopilot() {
       throw new Error('Enter a GitHub Copilot model name.');
     }
 
+    const jurisdictionContextId = String(options?.jurisdictionContextId || '').trim();
+
     const data = await fetchJson('/api/github-copilot/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -181,14 +183,45 @@ export function useGitHubCopilot() {
         accessToken,
         model: modelName.trim(),
         clause,
+        jurisdictionContextId,
       }),
     });
 
     return data.analysis;
   }, [accessToken]);
 
+  const prepareJurisdictionContext = useCallback(async ({
+    contractText,
+    freelancerResidence = '',
+    modelName,
+    useJurisdiction = true,
+  }) => {
+    if (!accessToken) {
+      throw new Error('Authenticate with GitHub Copilot before preparing jurisdiction context.');
+    }
+
+    if (!modelName || !modelName.trim()) {
+      throw new Error('Enter a GitHub Copilot model name.');
+    }
+
+    const data = await fetchJson('/api/github-copilot/jurisdiction-scout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accessToken,
+        model: modelName.trim(),
+        contractText,
+        freelancerResidence,
+        useJurisdiction: Boolean(useJurisdiction),
+      }),
+    });
+
+    return data;
+  }, [accessToken]);
+
   return {
     analyzeClause,
+    prepareJurisdictionContext,
     startAuth,
     disconnect,
     accessToken,

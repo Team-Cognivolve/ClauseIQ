@@ -256,6 +256,40 @@
   margin-bottom: 10px;
 }
 
+.copilot-auth-card__residence-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.copilot-auth-card__residence-row .copilot-auth-card__input {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.copilot-auth-card__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 10px;
+  background: #f4efe4;
+  color: var(--workspace-text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.copilot-auth-card__toggle input {
+  accent-color: var(--workspace-olive);
+}
+
 .copilot-auth-card__row {
   display: flex;
   align-items: center;
@@ -453,6 +487,51 @@
   color: #9d3c28;
 }
 
+.jurisdiction-banner {
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(95, 97, 74, 0.24);
+  background: rgba(95, 97, 74, 0.08);
+}
+
+.jurisdiction-banner__title {
+  margin: 0 0 4px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.jurisdiction-banner__text {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.jurisdiction-banner--running {
+  border-color: rgba(205, 139, 41, 0.34);
+  background: rgba(205, 139, 41, 0.12);
+  color: #8b5a12;
+}
+
+.jurisdiction-banner--triggered {
+  border-color: rgba(95, 97, 74, 0.32);
+  background: rgba(95, 97, 74, 0.14);
+  color: #4d4f3f;
+}
+
+.jurisdiction-banner--skipped {
+  border-color: rgba(45, 45, 45, 0.2);
+  background: rgba(255, 255, 255, 0.45);
+  color: #525a52;
+}
+
+.jurisdiction-banner--error {
+  border-color: rgba(177, 74, 52, 0.36);
+  background: rgba(177, 74, 52, 0.1);
+  color: #9d3c28;
+}
+
 .risk-analysis-section {
   margin-top: 8px;
 }
@@ -576,6 +655,72 @@
   padding: 0 12px 12px 58px;
   color: var(--workspace-muted);
   line-height: 1.5;
+}
+
+.jurisdiction-insights-card {
+  margin-top: 14px;
+}
+
+.jurisdiction-insights-card__meta {
+  margin: 0 0 12px;
+  color: var(--workspace-muted);
+  font-size: 0.9rem;
+}
+
+.jurisdiction-insights-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jurisdiction-insight-item__body {
+  padding: 0 12px 12px 58px;
+}
+
+.jurisdiction-insight-item__summary {
+  padding: 0;
+  margin-bottom: 10px;
+}
+
+.jurisdiction-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jurisdiction-source-link {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--workspace-text);
+  padding: 10px;
+  text-decoration: none;
+}
+
+.jurisdiction-source-link:hover {
+  border-color: rgba(95, 97, 74, 0.35);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.jurisdiction-source-link__title {
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.jurisdiction-source-link__snippet {
+  font-size: 0.83rem;
+  color: var(--workspace-muted);
+  line-height: 1.45;
+}
+
+.jurisdiction-insights-card__cache {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  color: var(--workspace-muted);
 }
 
 .no-issues-card {

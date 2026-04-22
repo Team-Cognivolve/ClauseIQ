@@ -39,6 +39,7 @@ GITHUB_COPILOT_DEVICE_SCOPE=read:user
 COPILOT_SERVER_PORT=8787
 MONGODB_URI=your_mongodb_uri_here
 JWT_SECRET=your_jwt_secret_here
+TAVILY_API_KEY=your_tavily_api_key_here
 ```
 
 Notes:
@@ -47,7 +48,22 @@ Notes:
 - The GitHub OAuth app must support device authorization.
 - `MONGODB_URI` must be a valid MongoDB Atlas connection string.
 - `JWT_SECRET` should be a strong secret (minimum 16 characters).
+- `TAVILY_API_KEY` enables jurisdiction scout research for cross-border ClauseIQ reviews.
 - Copilot model names are entered in the frontend, not in `.env`.
+
+## Jurisdiction Awareness (ClauseIQ Only)
+
+ClauseIQ includes an optional jurisdiction scout before clause analysis for freelancer-style contracts.
+
+1. Governing law is extracted from the uploaded contract.
+2. Freelancer residence is taken from the UI field (or inferred from contract text when missing).
+3. If countries differ, ClauseIQ runs Tavily searches and stores a short-lived context ID.
+4. During clause analysis, only relevant context is injected for non-compete, payment/notice, and tax/compliance clauses.
+
+Notes:
+
+- This flow is scoped to ClauseIQ contract review endpoints.
+- B2B policy review and chat endpoints are unchanged.
 
 ## Local Development
 
