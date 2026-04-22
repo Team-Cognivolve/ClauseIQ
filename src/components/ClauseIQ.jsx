@@ -1325,22 +1325,6 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
           </section>
         ) : (
           <section className="workspace-analysis-shell">
-            <header className="workspace-topbar">
-              <label className="workspace-topbar__search" htmlFor="workspace-analysis-search">
-                <span aria-hidden>S</span>
-                <input id="workspace-analysis-search" type="search" placeholder="Search analysis, policies..." />
-              </label>
-
-              <div className="workspace-topbar__actions">
-                <button type="button" className="workspace-topbar__icon-btn" aria-label="Notifications">N</button>
-                <button type="button" className="workspace-topbar__icon-btn" aria-label="Help">H</button>
-                <button type="button" className="workspace-topbar__upload-btn" onClick={triggerFilePicker}>
-                  Upload Document
-                </button>
-                <span className="workspace-topbar__avatar" aria-hidden>{userInitial}</span>
-              </div>
-            </header>
-
             <div className="workspace-analysis-grid">
               <section className="workspace-center-pane">
                 <header className="analysis-header">
@@ -1350,11 +1334,6 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                     <div>
                       <h1 className="analysis-header__title">{selectedFile?.name}</h1>
                       <p className="analysis-header__subtitle">Upload your contract to get instant AI-powered analysis</p>
-                    </div>
-
-                    <div className="analysis-header__actions">
-                      <button type="button" className="analysis-header__action-btn">Share</button>
-                      <button type="button" className="analysis-header__action-btn">Version History</button>
                     </div>
                   </div>
                 </header>
@@ -1430,11 +1409,44 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                   </div>
                 )}
 
+                {isJurisdictionEnabled && (
+                  <section className="insights-card jurisdiction-insights-card">
+                    <h2 className="insights-card__title">Jurisdiction Insights</h2>
+
+                    {governingCountryLabel && residenceCountryLabel && (
+                      <p className="jurisdiction-insights-card__meta">
+                        Governing Law: <strong>{governingCountryLabel}</strong> | Freelancer Residence: <strong>{residenceCountryLabel}</strong>
+                      </p>
+                    )}
+
+                    {jurisdictionStatus.status === 'running' && (
+                      <p className="insights-card__empty">Fetching Tavily legal research for cross-border terms...</p>
+                    )}
+
+                    {hasJurisdictionInsights && (
+                      <div className="jurisdiction-insights-list">
+                        {jurisdictionInsights.map((insight, index) => (
+                          <JurisdictionInsightItem key={`${insight.topic || insight.label || 'topic'}-${index}`} insight={insight} />
+                        ))}
+                      </div>
+                    )}
+
+                    {jurisdictionStatus.status !== 'running' && !hasJurisdictionInsights && (
+                      <p className="insights-card__empty">
+                        {jurisdictionStatus.message || 'Jurisdiction insights will appear here when cross-border Tavily research is available.'}
+                      </p>
+                    )}
+
+                    {jurisdictionStatus.cacheHit && jurisdictionStatus.status === 'triggered' && (
+                      <p className="jurisdiction-insights-card__cache">Using cached Tavily research for this country pair.</p>
+                    )}
+                  </section>
+                )}
+
                 {hasResults && (
                   <section className="risk-analysis-section">
                     <div className="risk-analysis-section__head">
                       <h2 className="risk-analysis-section__title">Clause Analysis</h2>
-                      <span className="risk-analysis-section__filter">All Risks</span>
                     </div>
                     <div className="clauses-list">
                       {results.map((item, index) => (
@@ -1483,39 +1495,6 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                   )}
                 </section>
 
-                {isJurisdictionEnabled && (
-                  <section className="insights-card jurisdiction-insights-card">
-                    <h2 className="insights-card__title">Jurisdiction Insights</h2>
-
-                    {governingCountryLabel && residenceCountryLabel && (
-                      <p className="jurisdiction-insights-card__meta">
-                        Governing Law: <strong>{governingCountryLabel}</strong> | Freelancer Residence: <strong>{residenceCountryLabel}</strong>
-                      </p>
-                    )}
-
-                    {jurisdictionStatus.status === 'running' && (
-                      <p className="insights-card__empty">Fetching Tavily legal research for cross-border terms...</p>
-                    )}
-
-                    {hasJurisdictionInsights && (
-                      <div className="jurisdiction-insights-list">
-                        {jurisdictionInsights.map((insight, index) => (
-                          <JurisdictionInsightItem key={`${insight.topic || insight.label || 'topic'}-${index}`} insight={insight} />
-                        ))}
-                      </div>
-                    )}
-
-                    {jurisdictionStatus.status !== 'running' && !hasJurisdictionInsights && (
-                      <p className="insights-card__empty">
-                        {jurisdictionStatus.message || 'Jurisdiction insights will appear here when cross-border Tavily research is available.'}
-                      </p>
-                    )}
-
-                    {jurisdictionStatus.cacheHit && jurisdictionStatus.status === 'triggered' && (
-                      <p className="jurisdiction-insights-card__cache">Using cached Tavily research for this country pair.</p>
-                    )}
-                  </section>
-                )}
               </aside>
             </div>
           </section>
@@ -1581,7 +1560,6 @@ function JurisdictionInsightItem({ insight }) {
                     rel="noreferrer"
                   >
                     <span className="jurisdiction-source-link__title">{source.title || source.url || `Source ${index + 1}`}</span>
-                    {source.snippet && <span className="jurisdiction-source-link__snippet">{source.snippet}</span>}
                   </a>
                 ) : (
                   <div
@@ -1589,7 +1567,6 @@ function JurisdictionInsightItem({ insight }) {
                     className="jurisdiction-source-link"
                   >
                     <span className="jurisdiction-source-link__title">{source.title || `Source ${index + 1}`}</span>
-                    {source.snippet && <span className="jurisdiction-source-link__snippet">{source.snippet}</span>}
                   </div>
                 )
               ))}
