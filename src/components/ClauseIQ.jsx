@@ -26,6 +26,7 @@ const MENU_VIEW = {
   WORKSPACE: 'workspace',
   HISTORY: 'history',
   HISTORY_DETAIL: 'history-detail',
+  SETTINGS: 'settings',
 };
 const HISTORY_RISK_FILTERS = ['All', 'High', 'Medium', 'Low'];
 
@@ -81,6 +82,38 @@ async function saveHistoryToServer(entry) {
   if (!response.ok) {
     throw new Error('Failed to save history to server.');
   }
+}
+
+async function fetchUserSettingsFromServer() {
+  const response = await fetch('/api/settings', {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to load settings.');
+  }
+
+  const payload = await response.json().catch(() => null);
+  return payload?.settings || null;
+}
+
+async function saveUserSettingsToServer(settings) {
+  const response = await fetch('/api/settings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify(settings),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || 'Failed to save settings.');
+  }
+
+  const payload = await response.json().catch(() => null);
+  return payload?.settings || null;
 }
 
 function getHistoryUserKey(userId) {
@@ -150,6 +183,27 @@ function buildReportFileName(fileName) {
     .toLowerCase();
 
   return `${normalizedBaseName || 'contract'}-analysis-report.pdf`;
+}
+
+function formatFileSize(sizeInBytes) {
+  const bytes = Number(sizeInBytes || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function formatClockTime(dateValue) {
+  const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return 'Now';
+
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 const DOCUMENT_TOPICS = [
@@ -240,6 +294,8 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const [selectedHistoryId, setSelectedHistoryId] = useState(null);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsNotice, setSettingsNotice] = useState({ type: '', message: '' });
 
   // PII masking state
   const [userName, setUserName] = useState('');
@@ -264,6 +320,29 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     if (typeof window === 'undefined') return;
     window.sessionStorage.setItem(JURISDICTION_ENABLED_STORAGE_KEY, String(isJurisdictionEnabled));
   }, [isJurisdictionEnabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSettings = async () => {
+      try {
+        const settings = await fetchUserSettingsFromServer();
+        if (cancelled || !settings) return;
+
+        setCopilotModel(String(settings.copilotModel || DEFAULT_COPILOT_MODEL));
+        setFreelancerResidence(String(settings.freelancerResidence || ''));
+        setIsJurisdictionEnabled(Boolean(settings.useJurisdiction));
+      } catch {
+        // Keep session defaults when server settings are unavailable.
+      }
+    };
+
+    loadSettings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -575,6 +654,19 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     }
   };
 
+  const handleNewAnalysis = () => {
+    didAnalyse.current = false;
+    activeRunId.current += 1;
+    savedRunId.current = null;
+    setActiveView(MENU_VIEW.WORKSPACE);
+    setSelectedFile(null);
+    setResults(null);
+    setAnalysisError(null);
+    setJurisdictionStatus(createInitialJurisdictionStatus());
+    setAnalysisProgress({ processed: 0, total: 0 });
+    pdf.reset();
+  };
+
   const handleDownloadReport = () => {
     try {
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
@@ -698,6 +790,16 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const isExtracting = pdf.status === 'extracting';
   const isPdfDone = pdf.status === 'done';
   const canDownloadReport = isPdfDone && !analyzing && Boolean(selectedFile) && Array.isArray(results);
+  const userInitial = useMemo(() => {
+    const source = String(user?.name || user?.email || 'U').trim();
+    return source ? source.charAt(0).toUpperCase() : 'U';
+  }, [user?.email, user?.name]);
+
+  const fileProcessedLabel = useMemo(() => {
+    if (isExtracting) return 'Processing...';
+    if (analyzing) return `${analysisProgress.processed}/${analysisProgress.total || 0}`;
+    return formatClockTime(new Date());
+  }, [analysisProgress.processed, analysisProgress.total, analyzing, isExtracting]);
 
   useEffect(() => {
     const canSave =
@@ -863,6 +965,44 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
           <span>Use Jurisdiction</span>
         </label>
       </div>
+
+      <button
+        type="button"
+        className="copilot-auth-card__btn copilot-auth-card__btn--save"
+        onClick={async () => {
+          setSettingsSaving(true);
+          setSettingsNotice({ type: '', message: '' });
+
+          try {
+            const saved = await saveUserSettingsToServer({
+              copilotModel,
+              freelancerResidence,
+              useJurisdiction: isJurisdictionEnabled,
+            });
+
+            if (saved) {
+              setCopilotModel(String(saved.copilotModel || DEFAULT_COPILOT_MODEL));
+              setFreelancerResidence(String(saved.freelancerResidence || ''));
+              setIsJurisdictionEnabled(Boolean(saved.useJurisdiction));
+            }
+
+            setSettingsNotice({ type: 'success', message: 'Settings saved.' });
+          } catch (error) {
+            setSettingsNotice({ type: 'error', message: error.message || 'Failed to save settings.' });
+          } finally {
+            setSettingsSaving(false);
+          }
+        }}
+        disabled={settingsSaving}
+      >
+        {settingsSaving ? 'Saving...' : 'Save Settings'}
+      </button>
+
+      {settingsNotice.message && (
+        <p className={`copilot-auth-card__notice ${settingsNotice.type === 'error' ? 'copilot-auth-card__notice--error' : 'copilot-auth-card__notice--success'}`}>
+          {settingsNotice.message}
+        </p>
+      )}
 
       {isCopilotAuthenticated ? (
         <div className="copilot-auth-card__row">
@@ -1071,6 +1211,16 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     );
   };
 
+  const renderSettingsView = () => (
+    <section className="workspace-settings-view">
+      <header className="workspace-header">
+        <h1 className="workspace-header__title">Settings</h1>
+        <p className="workspace-header__subtitle">Configure model and jurisdiction options for analysis.</p>
+      </header>
+      {renderCopilotAuthCard()}
+    </section>
+  );
+
   return (
     <div className="workspace-page">
       <aside className="workspace-sidebar">
@@ -1079,6 +1229,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
             ClauseIQ
           </button>
         </div>
+
+        <button type="button" className="workspace-new-analysis-btn" onClick={handleNewAnalysis}>
+          + New Analysis
+        </button>
 
         <div className="workspace-menu">
           <button
@@ -1100,7 +1254,13 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
         <div className="workspace-sidebar__spacer" />
 
         <div className="workspace-menu workspace-menu--footer">
-          <button type="button" className="workspace-menu__item">Settings</button>
+          <button
+            type="button"
+            className={`workspace-menu__item ${activeView === MENU_VIEW.SETTINGS ? 'workspace-menu__item--active' : ''}`}
+            onClick={() => setActiveView(MENU_VIEW.SETTINGS)}
+          >
+            Settings
+          </button>
           <button
             type="button"
             className="workspace-menu__item"
@@ -1113,7 +1273,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
       </aside>
 
       <main className={`workspace-content ${activeView === MENU_VIEW.WORKSPACE && hasUploadedFile ? 'workspace-content--uploaded' : ''}`}>
-        {activeView === MENU_VIEW.HISTORY ? renderHistoryView() : activeView === MENU_VIEW.HISTORY_DETAIL ? renderHistoryDetailView() : !hasUploadedFile ? (
+        {activeView === MENU_VIEW.HISTORY ? renderHistoryView() : activeView === MENU_VIEW.HISTORY_DETAIL ? renderHistoryDetailView() : activeView === MENU_VIEW.SETTINGS ? renderSettingsView() : !hasUploadedFile ? (
           <section className="workspace-upload-view">
             <header className="workspace-header">
               <h1 className="workspace-header__title">Contract Review</h1>
@@ -1162,152 +1322,203 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
               </div>
             )}
 
-            {renderCopilotAuthCard()}
           </section>
         ) : (
-          <>
-            <section className="workspace-center-pane">
-              <header className="workspace-header">
-                <h1 className="workspace-header__title">Contract Review</h1>
-                <p className="workspace-header__subtitle">Upload your contract to get instant AI-powered analysis</p>
-              </header>
+          <section className="workspace-analysis-shell">
+            <header className="workspace-topbar">
+              <label className="workspace-topbar__search" htmlFor="workspace-analysis-search">
+                <span aria-hidden>S</span>
+                <input id="workspace-analysis-search" type="search" placeholder="Search analysis, policies..." />
+              </label>
 
-              <section className="file-summary-card">
-                <div className="file-summary-card__head">
-                  <div>
-                    <h2 className="file-summary-card__name">{selectedFile?.name}</h2>
-                    <p className="file-summary-card__meta">
-                      {isExtracting
-                        ? 'Extracting text...'
-                        : (analyzing
-                          ? `Analyzing clauses (${analysisProgress.processed}/${analysisProgress.total})`
-                          : 'Analyzed just now')}
-                    </p>
+              <div className="workspace-topbar__actions">
+                <button type="button" className="workspace-topbar__icon-btn" aria-label="Notifications">N</button>
+                <button type="button" className="workspace-topbar__icon-btn" aria-label="Help">H</button>
+                <button type="button" className="workspace-topbar__upload-btn" onClick={triggerFilePicker}>
+                  Upload Document
+                </button>
+                <span className="workspace-topbar__avatar" aria-hidden>{userInitial}</span>
+              </div>
+            </header>
+
+            <div className="workspace-analysis-grid">
+              <section className="workspace-center-pane">
+                <header className="analysis-header">
+                  <p className="analysis-header__crumb">Workspace &gt; Active Analysis</p>
+
+                  <div className="analysis-header__row">
+                    <div>
+                      <h1 className="analysis-header__title">{selectedFile?.name}</h1>
+                      <p className="analysis-header__subtitle">Upload your contract to get instant AI-powered analysis</p>
+                    </div>
+
+                    <div className="analysis-header__actions">
+                      <button type="button" className="analysis-header__action-btn">Share</button>
+                      <button type="button" className="analysis-header__action-btn">Version History</button>
+                    </div>
                   </div>
-                </div>
+                </header>
 
-                <div className="risk-count-grid">
-                  <div className="risk-count risk-count--high">
-                    <span className="risk-count__label">High Risk</span>
-                    <strong className="risk-count__value">{riskCounts.high}</strong>
-                  </div>
+                <section className="analysis-summary-grid">
+                  <article className="analysis-document-card">
+                    <h2 className="analysis-document-card__title">Document Details</h2>
+                    <dl className="analysis-document-card__list">
+                      <div>
+                        <dt>Size</dt>
+                        <dd>{formatFileSize(selectedFile?.size)}</dd>
+                      </div>
+                      <div>
+                        <dt>Pages</dt>
+                        <dd>{pdf.pageCount || 0}</dd>
+                      </div>
+                      <div>
+                        <dt>Processed</dt>
+                        <dd>{fileProcessedLabel}</dd>
+                      </div>
+                    </dl>
+                  </article>
 
-                  <div className="risk-count risk-count--medium">
-                    <span className="risk-count__label">Medium Risk</span>
-                    <strong className="risk-count__value">{riskCounts.medium}</strong>
-                  </div>
+                  <section className="file-summary-card">
+                    <div className="file-summary-card__head">
+                      <div>
+                        <p className="file-summary-card__kicker">Risk Profile Overview</p>
+                        <p className="file-summary-card__meta">
+                          {isExtracting
+                            ? 'Extracting text...'
+                            : (analyzing
+                              ? `Analyzing clauses (${analysisProgress.processed}/${analysisProgress.total})`
+                              : 'Analyzed just now')}
+                        </p>
+                      </div>
+                    </div>
 
-                  <div className="risk-count risk-count--low">
-                    <span className="risk-count__label">Low Risk</span>
-                    <strong className="risk-count__value">{riskCounts.low}</strong>
-                  </div>
-                </div>
-              </section>
+                    <div className="risk-count-grid">
+                      <div className="risk-count risk-count--high">
+                        <strong className="risk-count__value">{riskCounts.high}</strong>
+                        <span className="risk-count__label">High Risk</span>
+                      </div>
 
-              {pdf.error && <div className="analysis-alert analysis-alert--warning">{pdf.error}</div>}
+                      <div className="risk-count risk-count--medium">
+                        <strong className="risk-count__value">{riskCounts.medium}</strong>
+                        <span className="risk-count__label">Medium Risk</span>
+                      </div>
 
-              {analysisError && <div className="analysis-alert analysis-alert--error">Analysis error: {analysisError}</div>}
-
-              {jurisdictionStatus.status !== 'idle' && (
-                <div className={`jurisdiction-banner jurisdiction-banner--${jurisdictionStatus.status}`}>
-                  <p className="jurisdiction-banner__title">Jurisdiction Scout</p>
-                  <p className="jurisdiction-banner__text">{jurisdictionStatus.message}</p>
-                </div>
-              )}
-
-              {isExtracting && <div className="analysis-status">Extracting text from PDF...</div>}
-
-              {analyzing && (
-                <div className="analysis-status">
-                  Analyzing contract for risk clauses... ({analysisProgress.processed}/{analysisProgress.total})
-                </div>
-              )}
-
-              {hasResults && (
-                <section className="risk-analysis-section">
-                  <h2 className="risk-analysis-section__title">Risk Analysis</h2>
-                  <div className="clauses-list">
-                    {results.map((item, index) => (
-                      <ClauseCard key={item._clauseId || `${item.clause_type}-${index}`} item={item} />
-                    ))}
-                  </div>
+                      <div className="risk-count risk-count--low">
+                        <strong className="risk-count__value">{riskCounts.low}</strong>
+                        <span className="risk-count__label">Low Risk</span>
+                      </div>
+                    </div>
+                  </section>
                 </section>
-              )}
 
-              {isPdfDone && !analyzing && Array.isArray(results) && results.length === 0 && (
-                <div className="no-issues-card">
-                  <h3 className="no-issues-card__title">No Concerns Found</h3>
-                  <p className="no-issues-card__text">No concerning clauses were identified in this contract.</p>
-                </div>
-              )}
-            </section>
+                {pdf.error && <div className="analysis-alert analysis-alert--warning">{pdf.error}</div>}
 
-            <aside className="workspace-right-pane">
-              <section className="insights-card">
-                <h2 className="insights-card__title">Key Insights</h2>
+                {analysisError && <div className="analysis-alert analysis-alert--error">Analysis error: {analysisError}</div>}
 
-                {isExtracting && (
-                  <p className="insights-card__empty">Key insights will appear once extraction finishes.</p>
-                )}
-
-                {isPdfDone && keyInsights.length === 0 && (
-                  <p className="insights-card__empty">No key insights could be generated from this document.</p>
-                )}
-
-                {keyInsights.length > 0 && (
-                  <div className="insights-list">
-                    {keyInsights.map((insight, index) => (
-                      <InsightItem key={`${insight.title}-${index}`} insight={insight} />
-                    ))}
+                {jurisdictionStatus.status !== 'idle' && (
+                  <div className={`jurisdiction-banner jurisdiction-banner--${jurisdictionStatus.status}`}>
+                    <p className="jurisdiction-banner__title">Jurisdiction Scout</p>
+                    <p className="jurisdiction-banner__text">{jurisdictionStatus.message}</p>
                   </div>
                 )}
 
-                {canDownloadReport && (
-                  <button
-                    type="button"
-                    className="insights-card__download-btn"
-                    onClick={handleDownloadReport}
-                  >
-                    Download Report (PDF)
-                  </button>
+                {isExtracting && <div className="analysis-status">Extracting text from PDF...</div>}
+
+                {analyzing && (
+                  <div className="analysis-status">
+                    Analyzing contract for risk clauses... ({analysisProgress.processed}/{analysisProgress.total})
+                  </div>
+                )}
+
+                {hasResults && (
+                  <section className="risk-analysis-section">
+                    <div className="risk-analysis-section__head">
+                      <h2 className="risk-analysis-section__title">Clause Analysis</h2>
+                      <span className="risk-analysis-section__filter">All Risks</span>
+                    </div>
+                    <div className="clauses-list">
+                      {results.map((item, index) => (
+                        <ClauseCard key={item._clauseId || `${item.clause_type}-${index}`} item={item} />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {isPdfDone && !analyzing && Array.isArray(results) && results.length === 0 && (
+                  <div className="no-issues-card">
+                    <h3 className="no-issues-card__title">No Concerns Found</h3>
+                    <p className="no-issues-card__text">No concerning clauses were identified in this contract.</p>
+                  </div>
                 )}
               </section>
 
-              {isJurisdictionEnabled && (
-                <section className="insights-card jurisdiction-insights-card">
-                  <h2 className="insights-card__title">Jurisdiction Insights</h2>
+              <aside className="workspace-right-pane">
+                <section className="insights-card">
+                  <h2 className="insights-card__title">Key Insights</h2>
 
-                  {governingCountryLabel && residenceCountryLabel && (
-                    <p className="jurisdiction-insights-card__meta">
-                      Governing Law: <strong>{governingCountryLabel}</strong> | Freelancer Residence: <strong>{residenceCountryLabel}</strong>
-                    </p>
+                  {isExtracting && (
+                    <p className="insights-card__empty">Key insights will appear once extraction finishes.</p>
                   )}
 
-                  {jurisdictionStatus.status === 'running' && (
-                    <p className="insights-card__empty">Fetching Tavily legal research for cross-border terms...</p>
+                  {isPdfDone && keyInsights.length === 0 && (
+                    <p className="insights-card__empty">No key insights could be generated from this document.</p>
                   )}
 
-                  {hasJurisdictionInsights && (
-                    <div className="jurisdiction-insights-list">
-                      {jurisdictionInsights.map((insight, index) => (
-                        <JurisdictionInsightItem key={`${insight.topic || insight.label || 'topic'}-${index}`} insight={insight} />
+                  {keyInsights.length > 0 && (
+                    <div className="insights-list">
+                      {keyInsights.map((insight, index) => (
+                        <InsightItem key={`${insight.title}-${index}`} insight={insight} />
                       ))}
                     </div>
                   )}
 
-                  {jurisdictionStatus.status !== 'running' && !hasJurisdictionInsights && (
-                    <p className="insights-card__empty">
-                      {jurisdictionStatus.message || 'Jurisdiction insights will appear here when cross-border Tavily research is available.'}
-                    </p>
-                  )}
-
-                  {jurisdictionStatus.cacheHit && jurisdictionStatus.status === 'triggered' && (
-                    <p className="jurisdiction-insights-card__cache">Using cached Tavily research for this country pair.</p>
+                  {canDownloadReport && (
+                    <button
+                      type="button"
+                      className="insights-card__download-btn"
+                      onClick={handleDownloadReport}
+                    >
+                      Download Report (PDF)
+                    </button>
                   )}
                 </section>
-              )}
-            </aside>
-          </>
+
+                {isJurisdictionEnabled && (
+                  <section className="insights-card jurisdiction-insights-card">
+                    <h2 className="insights-card__title">Jurisdiction Insights</h2>
+
+                    {governingCountryLabel && residenceCountryLabel && (
+                      <p className="jurisdiction-insights-card__meta">
+                        Governing Law: <strong>{governingCountryLabel}</strong> | Freelancer Residence: <strong>{residenceCountryLabel}</strong>
+                      </p>
+                    )}
+
+                    {jurisdictionStatus.status === 'running' && (
+                      <p className="insights-card__empty">Fetching Tavily legal research for cross-border terms...</p>
+                    )}
+
+                    {hasJurisdictionInsights && (
+                      <div className="jurisdiction-insights-list">
+                        {jurisdictionInsights.map((insight, index) => (
+                          <JurisdictionInsightItem key={`${insight.topic || insight.label || 'topic'}-${index}`} insight={insight} />
+                        ))}
+                      </div>
+                    )}
+
+                    {jurisdictionStatus.status !== 'running' && !hasJurisdictionInsights && (
+                      <p className="insights-card__empty">
+                        {jurisdictionStatus.message || 'Jurisdiction insights will appear here when cross-border Tavily research is available.'}
+                      </p>
+                    )}
+
+                    {jurisdictionStatus.cacheHit && jurisdictionStatus.status === 'triggered' && (
+                      <p className="jurisdiction-insights-card__cache">Using cached Tavily research for this country pair.</p>
+                    )}
+                  </section>
+                )}
+              </aside>
+            </div>
+          </section>
         )}
       </main>
 

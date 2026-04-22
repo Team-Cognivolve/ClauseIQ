@@ -33,11 +33,6 @@ export function B2BAuthPage({ onAuthSuccess, onBackToSelector }) {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  function toggleMode() {
-    setError('');
-    setMode((prev) => (prev === 'signin' ? 'signup' : 'signin'));
-  }
-
   function activateMode(nextMode) {
     if (nextMode === mode) return;
     setError('');
@@ -231,13 +226,6 @@ export function B2BAuthPage({ onAuthSuccess, onBackToSelector }) {
               Continue with SAML SSO
             </button>
           </form>
-
-          <p className="b2b-auth-switch">
-            {isSignUp ? 'Already have an account?' : 'Need a B2B account?'}{' '}
-            <button type="button" className="b2b-auth-switch__btn" onClick={toggleMode}>
-              {isSignUp ? 'Sign In' : 'Sign Up'}
-            </button>
-          </p>
         </div>
       </section>
 

@@ -30,11 +30,6 @@ export function AuthPage({ onAuthSuccess, onBackToLanding }) {
     setForm((previous) => ({ ...previous, [name]: value }));
   };
 
-  const toggleMode = () => {
-    setMode((previous) => (previous === 'signin' ? 'signup' : 'signin'));
-    setError('');
-  };
-
   const activateMode = (nextMode) => {
     if (nextMode === mode) return;
     setMode(nextMode);
