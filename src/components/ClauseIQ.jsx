@@ -13,6 +13,7 @@ import {
   normalizeClauseAnalysis,
   validateAndEnrichAnalysis,
 } from '../utils/rag';
+import { maskPII, demaskResults } from '../utils/piiMasker';
 import './ClauseIQ.css';
 
 const DEFAULT_COPILOT_MODEL = 'gpt-4.1';
@@ -213,6 +214,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
+  // PII masking state
+  const [userName, setUserName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+
   const inputRef = useRef(null);
   const didAnalyse = useRef(false);
   const activeRunId = useRef(0);
@@ -279,7 +284,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
       setResults(null);
 
       try {
-        const allClauses = extractClauses(pdf.text);
+        // --- PII masking: scrub the raw text before any analysis ---
+        const { maskedText, maskMap: currentMaskMap } = maskPII(pdf.text, userName, companyName);
+
+        const allClauses = extractClauses(maskedText);
         const substantiveClauses = filterSubstantiveClauses(allClauses);
         setAnalysisProgress({ processed: 0, total: substantiveClauses.length });
 
@@ -357,6 +365,13 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
         if (!cancelled && visibleCount === 0) {
           setResults([]);
         }
+
+        // --- PII demasking: restore [CONTRACTOR] / [CLIENT] in results for display ---
+        if (!cancelled) {
+          setResults((previous) =>
+            Array.isArray(previous) ? demaskResults(previous, currentMaskMap) : previous,
+          );
+        }
       } catch (error) {
         if (!cancelled) {
           setAnalysisError(error.message || 'Failed to complete analysis.');
@@ -371,7 +386,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     return () => {
       cancelled = true;
     };
-  }, [analyzeCopilotClause, copilotModel, isCopilotAuthenticated, isCopilotConfigured, pdf.status, pdf.text]);
+  }, [analyzeCopilotClause, companyName, copilotModel, isCopilotAuthenticated, isCopilotConfigured, pdf.status, pdf.text, userName]);
 
   const handleFileSelect = (file) => {
     if (!file) return;
@@ -945,6 +960,40 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
               <h1 className="workspace-header__title">Contract Review</h1>
               <p className="workspace-header__subtitle">Upload your contract to get instant AI-powered analysis</p>
             </header>
+
+            <section className="pii-identity-card">
+              <p className="pii-identity-card__label">Privacy Shield — optional names are masked before AI analysis</p>
+              <div className="pii-identity-card__row">
+                <div className="pii-identity-card__field">
+                  <label className="pii-identity-card__field-label" htmlFor="pii-user-name">
+                    Your Name
+                  </label>
+                  <input
+                    id="pii-user-name"
+                    type="text"
+                    className="pii-identity-card__input"
+                    placeholder="e.g. Rahul Sharma"
+                    value={userName}
+                    onChange={(e) => setUserName(e.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="pii-identity-card__field">
+                  <label className="pii-identity-card__field-label" htmlFor="pii-company-name">
+                    Company / Client Name
+                  </label>
+                  <input
+                    id="pii-company-name"
+                    type="text"
+                    className="pii-identity-card__input"
+                    placeholder="e.g. Acme Corp Pvt. Ltd."
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+            </section>
 
             {renderUploadBox()}
 

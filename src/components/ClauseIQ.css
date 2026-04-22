@@ -1098,3 +1098,72 @@
     font-size: 1.05rem;
   }
 }
+
+/* ------------------------------------------------------------------
+   PII Identity Card (Privacy Shield)
+   ------------------------------------------------------------------ */
+
+.pii-identity-card {
+  border: 1px solid rgba(95, 97, 74, 0.22);
+  border-left: 4px solid var(--workspace-olive);
+  border-radius: 14px;
+  background: #ede7db;
+  padding: 16px 18px 18px;
+  margin-bottom: 18px;
+}
+
+.pii-identity-card__label {
+  margin: 0 0 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--workspace-muted);
+}
+
+.pii-identity-card__row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 600px) {
+  .pii-identity-card__row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pii-identity-card__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pii-identity-card__field-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--workspace-muted);
+}
+
+.pii-identity-card__input {
+  border: 1px solid var(--workspace-border);
+  border-radius: 10px;
+  background: #f4efe4;
+  color: var(--workspace-text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 0.94rem;
+  padding: 10px 12px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  outline: none;
+}
+
+.pii-identity-card__input::placeholder {
+  color: rgba(90, 97, 89, 0.5);
+}
+
+.pii-identity-card__input:focus {
+  border-color: rgba(95, 97, 74, 0.5);
+  box-shadow: 0 0 0 3px rgba(95, 97, 74, 0.1);
+}
