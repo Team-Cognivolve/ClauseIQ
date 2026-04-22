@@ -54,6 +54,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+vcode/
 .project
 .classpath
 .settings/
