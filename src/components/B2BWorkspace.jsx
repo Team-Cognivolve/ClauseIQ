@@ -300,7 +300,7 @@ export function B2BWorkspace({ user, onSignOut }) {
     setError('');
     setIsAnalyzing(false);
     setAnalysisProgress(0);
-    setActiveTab('review');
+    setActiveTab('home');
   }
 
   const renderCopilotSettingsCard = () => (
