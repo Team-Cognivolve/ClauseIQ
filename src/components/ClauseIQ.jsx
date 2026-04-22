@@ -17,6 +17,8 @@ import './ClauseIQ.css';
 
 const DEFAULT_COPILOT_MODEL = 'gpt-4.1';
 const COPILOT_MODEL_STORAGE_KEY = 'clauseiq_github_copilot_model';
+const FREELANCER_RESIDENCE_STORAGE_KEY = 'clauseiq_freelancer_residence';
+const JURISDICTION_ENABLED_STORAGE_KEY = 'clauseiq_use_jurisdiction';
 const HISTORY_STORAGE_KEY = 'clauseiq_analysis_history_v1';
 const HISTORY_LIMIT = 50;
 const MENU_VIEW = {
@@ -26,9 +28,26 @@ const MENU_VIEW = {
 };
 const HISTORY_RISK_FILTERS = ['All', 'High', 'Medium', 'Low'];
 
+function createInitialJurisdictionStatus() {
+  return {
+    status: 'idle',
+    triggered: false,
+    contextId: '',
+    message: 'Jurisdiction scout has not run for this contract yet.',
+  };
+}
+
 function readSessionValue(key, fallback = '') {
   if (typeof window === 'undefined') return fallback;
   return window.sessionStorage.getItem(key) || fallback;
+}
+
+function readSessionBoolean(key, fallback = false) {
+  if (typeof window === 'undefined') return fallback;
+
+  const stored = window.sessionStorage.getItem(key);
+  if (stored === null) return fallback;
+  return stored === 'true';
 }
 
 async function fetchHistoryFromServer() {
@@ -189,6 +208,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const githubCopilot = useGitHubCopilot();
   const {
     analyzeClause: analyzeCopilotClause,
+    prepareJurisdictionContext,
     configurationError: copilotConfigurationError,
     isAuthenticated: isCopilotAuthenticated,
     isAuthorizing: isCopilotAuthorizing,
@@ -199,9 +219,12 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   } = githubCopilot;
 
   const [copilotModel, setCopilotModel] = useState(() => readSessionValue(COPILOT_MODEL_STORAGE_KEY, DEFAULT_COPILOT_MODEL));
+  const [freelancerResidence, setFreelancerResidence] = useState(() => readSessionValue(FREELANCER_RESIDENCE_STORAGE_KEY, ''));
+  const [isJurisdictionEnabled, setIsJurisdictionEnabled] = useState(() => readSessionBoolean(JURISDICTION_ENABLED_STORAGE_KEY, true));
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ processed: 0, total: 0 });
   const [analysisError, setAnalysisError] = useState(null);
+  const [jurisdictionStatus, setJurisdictionStatus] = useState(() => createInitialJurisdictionStatus());
   const [results, setResults] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [activeView, setActiveView] = useState(MENU_VIEW.WORKSPACE);
@@ -222,6 +245,16 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     if (typeof window === 'undefined') return;
     window.sessionStorage.setItem(COPILOT_MODEL_STORAGE_KEY, copilotModel);
   }, [copilotModel]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(FREELANCER_RESIDENCE_STORAGE_KEY, freelancerResidence);
+  }, [freelancerResidence]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(JURISDICTION_ENABLED_STORAGE_KEY, String(isJurisdictionEnabled));
+  }, [isJurisdictionEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -262,6 +295,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     if (pdf.status === 'done') {
       setResults(null);
       setAnalysisError(null);
+      setJurisdictionStatus(createInitialJurisdictionStatus());
     }
   }, [pdf.status]);
 
@@ -289,13 +323,75 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
         }
 
         const canUseCopilot = isCopilotConfigured && isCopilotAuthenticated && Boolean(copilotModel.trim());
+        const shouldRunJurisdictionScout = canUseCopilot && isJurisdictionEnabled;
+        let jurisdictionContextId = '';
+
+        if (shouldRunJurisdictionScout) {
+          if (!cancelled) {
+            setJurisdictionStatus({
+              status: 'running',
+              triggered: false,
+              contextId: '',
+              message: 'Jurisdiction scout is checking governing law and freelancer residence.',
+            });
+          }
+
+          try {
+            const scout = await prepareJurisdictionContext({
+              contractText: pdf.text,
+              freelancerResidence,
+              modelName: copilotModel.trim(),
+              useJurisdiction: true,
+            });
+
+            jurisdictionContextId = String(scout?.contextId || '').trim();
+
+            if (!cancelled) {
+              setJurisdictionStatus({
+                status: scout?.triggered ? 'triggered' : 'skipped',
+                triggered: Boolean(scout?.triggered),
+                contextId: jurisdictionContextId,
+                message: scout?.message || (scout?.triggered
+                  ? 'Jurisdiction scout triggered for cross-border review.'
+                  : 'Jurisdiction scout skipped for this contract.'),
+              });
+            }
+          } catch (error) {
+            if (!cancelled) {
+              setJurisdictionStatus({
+                status: 'error',
+                triggered: false,
+                contextId: '',
+                message: error.message || 'Jurisdiction scout failed. Continuing with standard analysis.',
+              });
+            }
+          }
+        } else if (!cancelled) {
+          if (!isJurisdictionEnabled) {
+            setJurisdictionStatus({
+              status: 'skipped',
+              triggered: false,
+              contextId: '',
+              message: 'Jurisdiction scout is disabled. Running standard clause analysis workflow.',
+            });
+          } else {
+            setJurisdictionStatus({
+              status: 'skipped',
+              triggered: false,
+              contextId: '',
+              message: 'Jurisdiction scout skipped because GitHub Copilot is not connected.',
+            });
+          }
+        }
 
         const processClause = async (clause, index) => {
           const patternResult = detectRiskByPattern(clause.cleanText || clause.text);
 
           if (canUseCopilot) {
             try {
-              const apiResponse = await analyzeCopilotClause(clause, copilotModel.trim());
+              const apiResponse = await analyzeCopilotClause(clause, copilotModel.trim(), {
+                jurisdictionContextId,
+              });
               const normalized = normalizeClauseAnalysis(apiResponse, clause);
 
               if (normalized) {
@@ -371,7 +467,17 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     return () => {
       cancelled = true;
     };
-  }, [analyzeCopilotClause, copilotModel, isCopilotAuthenticated, isCopilotConfigured, pdf.status, pdf.text]);
+  }, [
+    analyzeCopilotClause,
+    copilotModel,
+    freelancerResidence,
+    isJurisdictionEnabled,
+    isCopilotAuthenticated,
+    isCopilotConfigured,
+    pdf.status,
+    pdf.text,
+    prepareJurisdictionContext,
+  ]);
 
   const handleFileSelect = (file) => {
     if (!file) return;
@@ -386,6 +492,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     savedRunId.current = null;
     setResults(null);
     setAnalysisError(null);
+    setJurisdictionStatus(createInitialJurisdictionStatus());
     setSelectedFile(file);
     setActiveView(MENU_VIEW.WORKSPACE);
     pdf.extractText(file);
@@ -689,6 +796,28 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
         onChange={(event) => setCopilotModel(event.target.value)}
         placeholder={DEFAULT_COPILOT_MODEL}
       />
+
+      <label className="copilot-auth-card__label" htmlFor="freelancer-residence-input">Freelancer Residence</label>
+      <div className="copilot-auth-card__residence-row">
+        <input
+          id="freelancer-residence-input"
+          className="copilot-auth-card__input"
+          type="text"
+          value={freelancerResidence}
+          onChange={(event) => setFreelancerResidence(event.target.value)}
+          placeholder="e.g. India, Singapore, California, USA"
+        />
+
+        <label className="copilot-auth-card__toggle" htmlFor="jurisdiction-toggle-input">
+          <input
+            id="jurisdiction-toggle-input"
+            type="checkbox"
+            checked={isJurisdictionEnabled}
+            onChange={(event) => setIsJurisdictionEnabled(event.target.checked)}
+          />
+          <span>Use Jurisdiction</span>
+        </label>
+      </div>
 
       {isCopilotAuthenticated ? (
         <div className="copilot-auth-card__row">
@@ -999,6 +1128,13 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
               {pdf.error && <div className="analysis-alert analysis-alert--warning">{pdf.error}</div>}
 
               {analysisError && <div className="analysis-alert analysis-alert--error">Analysis error: {analysisError}</div>}
+
+              {jurisdictionStatus.status !== 'idle' && (
+                <div className={`jurisdiction-banner jurisdiction-banner--${jurisdictionStatus.status}`}>
+                  <p className="jurisdiction-banner__title">Jurisdiction Scout</p>
+                  <p className="jurisdiction-banner__text">{jurisdictionStatus.message}</p>
+                </div>
+              )}
 
               {isExtracting && <div className="analysis-status">Extracting text from PDF...</div>}
 

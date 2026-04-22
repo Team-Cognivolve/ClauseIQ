@@ -32,9 +32,54 @@ const githubClientId = String(process.env.GITHUB_COPILOT_CLIENT_ID || '').trim()
 const githubDeviceScope = String(process.env.GITHUB_COPILOT_DEVICE_SCOPE || 'read:user').trim();
 const mongoUri = String(process.env.MONGODB_URI || '').trim();
 const jwtSecret = String(process.env.JWT_SECRET || '').trim();
+const tavilyApiKey = String(process.env.TAVILY_API_KEY || '').trim();
 const jwtCookieName = 'clauseiq_auth';
 const b2bJwtCookieName = 'clauseiq_b2b_auth';
 const clientCache = new Map();
+const JURISDICTION_CONTEXT_TTL_MS = 30 * 60 * 1000;
+const JURISDICTION_PAIR_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const jurisdictionContextStore = new Map();
+const jurisdictionPairCache = new Map();
+
+const COUNTRY_ALIASES = new Map([
+  ['india', 'India'],
+  ['indian', 'India'],
+  ['united states', 'United States'],
+  ['usa', 'United States'],
+  ['u.s.a', 'United States'],
+  ['us', 'United States'],
+  ['u.s.', 'United States'],
+  ['america', 'United States'],
+  ['california', 'United States'],
+  ['new york', 'United States'],
+  ['delaware', 'United States'],
+  ['texas', 'United States'],
+  ['canada', 'Canada'],
+  ['ontario', 'Canada'],
+  ['britain', 'United Kingdom'],
+  ['uk', 'United Kingdom'],
+  ['u.k.', 'United Kingdom'],
+  ['united kingdom', 'United Kingdom'],
+  ['england', 'United Kingdom'],
+  ['wales', 'United Kingdom'],
+  ['scotland', 'United Kingdom'],
+  ['ireland', 'Ireland'],
+  ['australia', 'Australia'],
+  ['new zealand', 'New Zealand'],
+  ['singapore', 'Singapore'],
+  ['japan', 'Japan'],
+  ['germany', 'Germany'],
+  ['france', 'France'],
+  ['netherlands', 'Netherlands'],
+  ['united arab emirates', 'United Arab Emirates'],
+  ['uae', 'United Arab Emirates'],
+]);
+
+const JURISDICTION_TOPIC_LABELS = {
+  nonCompete: 'non-compete',
+  paymentNotice: 'payment and notice',
+  taxCompliance: 'tax and compliance',
+};
 
 const userSchema = new mongoose.Schema(
   {
@@ -185,6 +230,297 @@ function chunkText(text, chunkSize = 900, overlap = 150) {
   }
 
   return chunks;
+}
+
+function createEphemeralId(prefix = 'ctx') {
+  return globalThis.crypto?.randomUUID?.()
+    || `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeLocationText(value) {
+  return String(value || '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toCountry(locationText) {
+  const location = normalizeLocationText(locationText).toLowerCase();
+  if (!location) return '';
+
+  for (const [alias, country] of COUNTRY_ALIASES.entries()) {
+    if (location === alias || location.includes(` ${alias}`) || location.includes(`${alias} `) || location.includes(`, ${alias}`)) {
+      return country;
+    }
+  }
+
+  const cleaned = location
+    .replace(/[^a-z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (COUNTRY_ALIASES.has(cleaned)) {
+    return COUNTRY_ALIASES.get(cleaned);
+  }
+
+  return '';
+}
+
+function parseBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+
+  return fallback;
+}
+
+function normalizeCountryCandidate(value) {
+  const normalized = normalizeLocationText(value);
+  if (!normalized) return '';
+
+  const mapped = toCountry(normalized);
+  if (mapped) return mapped;
+
+  const cleaned = normalized
+    .replace(/\b(the|republic\s+of|federal\s+republic\s+of|state\s+of|states\s+of|kingdom\s+of|islamic\s+republic\s+of|democratic\s+republic\s+of)\b/gi, ' ')
+    .replace(/[^a-zA-Z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return '';
+
+  return cleaned
+    .split(' ')
+    .map((part) => (part.length <= 3
+      ? part.toUpperCase()
+      : `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`))
+    .join(' ');
+}
+
+function buildCountryComparisonKey(value) {
+  const normalized = normalizeCountryCandidate(value).toLowerCase();
+  if (!normalized) return '';
+
+  return normalized
+    .replace(/\b(the|republic|federal|democratic|kingdom|state|states|islamic|of|and)\b/g, ' ')
+    .replace(/[^a-z]/g, '');
+}
+
+function areCountriesEquivalent(leftCountry, rightCountry) {
+  const leftKey = buildCountryComparisonKey(leftCountry);
+  const rightKey = buildCountryComparisonKey(rightCountry);
+
+  if (!leftKey || !rightKey) return false;
+  if (leftKey === rightKey) return true;
+
+  return leftKey.length >= 6
+    && rightKey.length >= 6
+    && (leftKey.includes(rightKey) || rightKey.includes(leftKey));
+}
+
+function buildClauseCorpusForJurisdiction(contractText) {
+  const clauses = filterSubstantiveClauses(extractClauses(contractText));
+  if (clauses.length === 0) {
+    return sanitizeText(contractText).slice(0, 140000);
+  }
+
+  return clauses
+    .map((clause, index) => {
+      const clauseText = safeTrimmedString(clause?.cleanText || clause?.text || '', '', 2200);
+      return `Clause ${index + 1}: ${clauseText}`;
+    })
+    .join('\n\n')
+    .slice(0, 140000);
+}
+
+async function extractGoverningLawSignalWithAI({ accessToken, model, contractText }) {
+  const clauseCorpus = buildClauseCorpusForJurisdiction(contractText);
+  if (!clauseCorpus) {
+    return {
+      location: '',
+      country: '',
+      source: 'ai',
+      evidence: '',
+    };
+  }
+
+  const prompt = [
+    'Extract the governing law jurisdiction country from these contract clauses.',
+    'Return ONLY minified JSON with exactly these keys: {"location":"","country":""}.',
+    'Rules:',
+    '- location: the exact governing-law place text if present.',
+    '- country: country name only (for example: India, United States, Singapore).',
+    '- If governing law is missing, return empty strings.',
+    '',
+    'Contract clauses:',
+    clauseCorpus,
+  ].join('\n');
+
+  const raw = await runCopilotPrompt({ accessToken, model, prompt });
+  const parsed = normalizeApiPayload(extractJSON(raw)) || {};
+
+  const location = normalizeLocationText(
+    parsed.location || parsed.governingLaw || parsed.governing_law || parsed.jurisdiction || '',
+  );
+  const country = normalizeCountryCandidate(
+    parsed.country || parsed.governingCountry || parsed.governing_country || location,
+  );
+
+  return {
+    location: location || country,
+    country,
+    source: 'ai',
+    evidence: safeTrimmedString(raw, '', 260),
+  };
+}
+
+function cleanupJurisdictionCaches() {
+  const now = Date.now();
+
+  for (const [id, context] of jurisdictionContextStore.entries()) {
+    if (now - context.createdAt > JURISDICTION_CONTEXT_TTL_MS) {
+      jurisdictionContextStore.delete(id);
+    }
+  }
+
+  for (const [key, item] of jurisdictionPairCache.entries()) {
+    if (now - item.createdAt > JURISDICTION_PAIR_CACHE_TTL_MS) {
+      jurisdictionPairCache.delete(key);
+    }
+  }
+}
+
+function getJurisdictionContext(contextId) {
+  if (!contextId) return null;
+  cleanupJurisdictionCaches();
+  return jurisdictionContextStore.get(contextId) || null;
+}
+
+function detectJurisdictionTopic(clause) {
+  const text = String(clause?.cleanText || clause?.text || '').toLowerCase();
+  if (!text) return '';
+
+  if (/(non[-\s]?compete|non[-\s]?solicit|restrict\s+competition|restraint\s+of\s+trade)/i.test(text)) {
+    return 'nonCompete';
+  }
+
+  if (/(payment|invoice|fee|compensation|net\s+\d+|notice\s+period|termination\s+notice|late\s+fee)/i.test(text)) {
+    return 'paymentNotice';
+  }
+
+  if (/(tax|withholding|tds|compliance|deduct\w*\s+tax|social\s+security|statutory)/i.test(text)) {
+    return 'taxCompliance';
+  }
+
+  return '';
+}
+
+function buildJurisdictionPromptBlock(context, topic) {
+  if (!context || !topic) return '';
+
+  const summary = context.summaries?.[topic];
+  if (!summary?.text) return '';
+
+  const topicLabel = JURISDICTION_TOPIC_LABELS[topic] || topic;
+
+  return [
+    'Jurisdiction context (only for this clause if relevant):',
+    `- Governing law country: ${context.governingCountry}`,
+    `- Freelancer residence country: ${context.freelancerCountry}`,
+    `- ${topicLabel} summary: ${summary.text}`,
+    summary.referenceUrl ? `- Reference: ${summary.referenceUrl}` : '',
+    'Ignore this context if it does not apply to the clause.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildJurisdictionPairKey(governingCountry, freelancerCountry) {
+  return `${String(governingCountry || '').toLowerCase()}::${String(freelancerCountry || '').toLowerCase()}`;
+}
+
+async function searchTavily(query) {
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      api_key: tavilyApiKey,
+      query,
+      search_depth: 'basic',
+      max_results: 3,
+      include_answer: false,
+      include_images: false,
+    }),
+  });
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = data?.detail || data?.error || 'Tavily request failed.';
+    throw new Error(message);
+  }
+
+  const items = Array.isArray(data?.results) ? data.results : [];
+  return items.map((item) => ({
+    title: safeTrimmedString(item?.title, '', 180),
+    url: safeTrimmedString(item?.url, '', 500),
+    content: safeTrimmedString(item?.content, '', 800),
+  }));
+}
+
+function summarizeJurisdictionResearch(results, fallbackTitle) {
+  const top = Array.isArray(results) ? results.slice(0, 2) : [];
+  const snippets = top
+    .map((item) => safeTrimmedString(item?.content, '', 260))
+    .filter(Boolean);
+
+  const text = snippets.length
+    ? snippets.join(' ')
+    : `No specific ${fallbackTitle} guidance was found in the quick legal scout.`;
+
+  return {
+    text,
+    referenceUrl: safeTrimmedString(top[0]?.url, '', 500),
+  };
+}
+
+async function getOrCreateJurisdictionSummary({ governingCountry, freelancerCountry }) {
+  cleanupJurisdictionCaches();
+
+  const pairKey = buildJurisdictionPairKey(governingCountry, freelancerCountry);
+  const cached = jurisdictionPairCache.get(pairKey);
+  if (cached && Date.now() - cached.createdAt <= JURISDICTION_PAIR_CACHE_TTL_MS) {
+    return { summaries: cached.summaries, cacheHit: true };
+  }
+
+  const nonCompeteQuery = `Enforceability of non-compete clauses for independent contractors in ${governingCountry} 2026.`;
+  const paymentNoticeQuery = `Minimum notice period and payment protection laws for freelancers in ${governingCountry}.`;
+  const taxComplianceQuery = `Withholding tax (TDS) requirements for international contractors paying from ${freelancerCountry} to ${governingCountry}.`;
+
+  const [nonCompeteResults, paymentNoticeResults, taxComplianceResults] = await Promise.all([
+    searchTavily(nonCompeteQuery),
+    searchTavily(paymentNoticeQuery),
+    searchTavily(taxComplianceQuery),
+  ]);
+
+  const summaries = {
+    nonCompete: summarizeJurisdictionResearch(nonCompeteResults, 'non-compete'),
+    paymentNotice: summarizeJurisdictionResearch(paymentNoticeResults, 'payment/notice'),
+    taxCompliance: summarizeJurisdictionResearch(taxComplianceResults, 'tax/compliance'),
+  };
+
+  jurisdictionPairCache.set(pairKey, {
+    createdAt: Date.now(),
+    summaries,
+  });
+
+  return { summaries, cacheHit: false };
 }
 
 function resolveCopilotContext(req) {
@@ -1456,10 +1792,169 @@ app.post('/api/github-copilot/device/poll', async (req, res) => {
   }
 });
 
+app.post('/api/github-copilot/jurisdiction-scout', requireAuth, async (req, res) => {
+  const copilotContext = resolveCopilotContext(req);
+  if (copilotContext.error) {
+    return jsonError(res, 400, copilotContext.error);
+  }
+
+  const contractText = safeTrimmedString(req.body?.contractText, '', 400000);
+  const useJurisdiction = parseBoolean(req.body?.useJurisdiction, true);
+  const providedResidence = safeTrimmedString(req.body?.freelancerResidence, '', 180);
+
+  if (!useJurisdiction) {
+    return res.json({
+      triggered: false,
+      status: 'skipped',
+      contextId: null,
+      message: 'Jurisdiction scout is disabled for this run.',
+    });
+  }
+
+  if (!contractText || contractText.length < 80) {
+    return jsonError(res, 400, 'Contract text is required for jurisdiction scouting.');
+  }
+
+  const freelancerLocation = normalizeLocationText(providedResidence);
+  if (!freelancerLocation) {
+    return res.json({
+      triggered: false,
+      status: 'skipped',
+      contextId: null,
+      message: 'Jurisdiction scout skipped: freelancer residence is required when jurisdiction is enabled.',
+    });
+  }
+
+  const freelancerCountry = normalizeCountryCandidate(freelancerLocation);
+  const freelancerSignal = {
+    location: freelancerLocation,
+    country: freelancerCountry,
+    source: 'user',
+    evidence: '',
+  };
+
+  if (!freelancerSignal.country) {
+    return res.json({
+      triggered: false,
+      status: 'skipped',
+      contextId: null,
+      message: 'Jurisdiction scout skipped: freelancer residence country could not be mapped.',
+      freelancerResidence: {
+        location: freelancerSignal.location,
+        country: freelancerSignal.country || '',
+        source: freelancerSignal.source,
+      },
+    });
+  }
+
+  let governingLaw;
+  try {
+    governingLaw = await extractGoverningLawSignalWithAI({
+      accessToken: copilotContext.accessToken,
+      model: copilotContext.model,
+      contractText,
+    });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Failed to extract governing-law country.');
+  }
+
+  if (!governingLaw?.country) {
+    return res.json({
+      triggered: false,
+      status: 'skipped',
+      contextId: null,
+      message: 'Jurisdiction scout skipped: AI could not confidently extract governing-law country.',
+      governingLaw: {
+        location: governingLaw?.location || '',
+        country: governingLaw?.country || '',
+      },
+      freelancerResidence: {
+        location: freelancerSignal.location,
+        country: freelancerSignal.country,
+        source: freelancerSignal.source,
+      },
+    });
+  }
+
+  if (areCountriesEquivalent(governingLaw.country, freelancerSignal.country)) {
+    return res.json({
+      triggered: false,
+      status: 'skipped',
+      contextId: null,
+      message: 'Jurisdiction scout skipped: governing law and freelancer residence are in the same country.',
+      governingLaw: {
+        location: governingLaw.location,
+        country: governingLaw.country,
+      },
+      freelancerResidence: {
+        location: freelancerSignal.location,
+        country: freelancerSignal.country,
+        source: freelancerSignal.source,
+      },
+    });
+  }
+
+  if (!tavilyApiKey) {
+    return res.json({
+      triggered: false,
+      status: 'skipped',
+      contextId: null,
+      message: 'Jurisdiction scout skipped: TAVILY_API_KEY is not configured on the server.',
+      governingLaw: {
+        location: governingLaw.location,
+        country: governingLaw.country,
+      },
+      freelancerResidence: {
+        location: freelancerSignal.location,
+        country: freelancerSignal.country,
+        source: freelancerSignal.source,
+      },
+    });
+  }
+
+  try {
+    const summaryResponse = await getOrCreateJurisdictionSummary({
+      governingCountry: governingLaw.country,
+      freelancerCountry: freelancerSignal.country,
+    });
+
+    const contextId = createEphemeralId('jur');
+    jurisdictionContextStore.set(contextId, {
+      id: contextId,
+      createdAt: Date.now(),
+      governingLawLocation: governingLaw.location,
+      governingCountry: governingLaw.country,
+      freelancerLocation: freelancerSignal.location,
+      freelancerCountry: freelancerSignal.country,
+      summaries: summaryResponse.summaries,
+    });
+
+    return res.json({
+      triggered: true,
+      status: 'triggered',
+      contextId,
+      message: 'Jurisdiction scout triggered: cross-border mismatch detected and legal context prepared.',
+      cacheHit: summaryResponse.cacheHit,
+      governingLaw: {
+        location: governingLaw.location,
+        country: governingLaw.country,
+      },
+      freelancerResidence: {
+        location: freelancerSignal.location,
+        country: freelancerSignal.country,
+        source: freelancerSignal.source,
+      },
+    });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Jurisdiction scout failed.');
+  }
+});
+
 app.post('/api/github-copilot/analyze', requireAuth, async (req, res) => {
   const accessToken = String(req.body?.accessToken || '').trim();
   const model = String(req.body?.model || '').trim();
   const clause = req.body?.clause;
+  const jurisdictionContextId = safeTrimmedString(req.body?.jurisdictionContextId, '', 120);
 
   if (!accessToken) {
     return jsonError(res, 400, 'Missing GitHub access token.');
@@ -1480,7 +1975,11 @@ app.post('/api/github-copilot/analyze', requireAuth, async (req, res) => {
   });
 
   try {
-    const prompt = `${SYSTEM_PROMPT}\n\n${buildClauseAnalysisPrompt(clause)}`;
+    const jurisdictionContext = getJurisdictionContext(jurisdictionContextId);
+    const jurisdictionTopic = detectJurisdictionTopic(clause);
+    const jurisdictionPromptBlock = buildJurisdictionPromptBlock(jurisdictionContext, jurisdictionTopic);
+
+    const prompt = `${SYSTEM_PROMPT}\n\n${jurisdictionPromptBlock ? `${jurisdictionPromptBlock}\n\n` : ''}${buildClauseAnalysisPrompt(clause)}`;
     const response = await session.sendAndWait({ prompt });
     const content = response?.data?.content ?? '';
     const parsed = normalizeApiPayload(extractJSON(content));
