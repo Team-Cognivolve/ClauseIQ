@@ -17,6 +17,8 @@ import './ClauseIQ.css';
 
 const DEFAULT_COPILOT_MODEL = 'gpt-4.1';
 const COPILOT_MODEL_STORAGE_KEY = 'clauseiq_github_copilot_model';
+const FREELANCER_RESIDENCE_STORAGE_KEY = 'clauseiq_freelancer_residence';
+const JURISDICTION_ENABLED_STORAGE_KEY = 'clauseiq_use_jurisdiction';
 const HISTORY_STORAGE_KEY = 'clauseiq_analysis_history_v1';
 const HISTORY_LIMIT = 50;
 const MENU_VIEW = {
@@ -26,9 +28,30 @@ const MENU_VIEW = {
 };
 const HISTORY_RISK_FILTERS = ['All', 'High', 'Medium', 'Low'];
 
+function createInitialJurisdictionStatus() {
+  return {
+    status: 'idle',
+    triggered: false,
+    contextId: '',
+    message: 'Jurisdiction scout has not run for this contract yet.',
+    cacheHit: false,
+    governingLaw: null,
+    freelancerResidence: null,
+    insights: [],
+  };
+}
+
 function readSessionValue(key, fallback = '') {
   if (typeof window === 'undefined') return fallback;
   return window.sessionStorage.getItem(key) || fallback;
+}
+
+function readSessionBoolean(key, fallback = false) {
+  if (typeof window === 'undefined') return fallback;
+
+  const stored = window.sessionStorage.getItem(key);
+  if (stored === null) return fallback;
+  return stored === 'true';
 }
 
 async function fetchHistoryFromServer() {
@@ -189,6 +212,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const githubCopilot = useGitHubCopilot();
   const {
     analyzeClause: analyzeCopilotClause,
+    prepareJurisdictionContext,
     configurationError: copilotConfigurationError,
     isAuthenticated: isCopilotAuthenticated,
     isAuthorizing: isCopilotAuthorizing,
@@ -199,9 +223,12 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   } = githubCopilot;
 
   const [copilotModel, setCopilotModel] = useState(() => readSessionValue(COPILOT_MODEL_STORAGE_KEY, DEFAULT_COPILOT_MODEL));
+  const [freelancerResidence, setFreelancerResidence] = useState(() => readSessionValue(FREELANCER_RESIDENCE_STORAGE_KEY, ''));
+  const [isJurisdictionEnabled, setIsJurisdictionEnabled] = useState(() => readSessionBoolean(JURISDICTION_ENABLED_STORAGE_KEY, true));
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ processed: 0, total: 0 });
   const [analysisError, setAnalysisError] = useState(null);
+  const [jurisdictionStatus, setJurisdictionStatus] = useState(() => createInitialJurisdictionStatus());
   const [results, setResults] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [activeView, setActiveView] = useState(MENU_VIEW.WORKSPACE);
@@ -222,6 +249,16 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     if (typeof window === 'undefined') return;
     window.sessionStorage.setItem(COPILOT_MODEL_STORAGE_KEY, copilotModel);
   }, [copilotModel]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(FREELANCER_RESIDENCE_STORAGE_KEY, freelancerResidence);
+  }, [freelancerResidence]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem(JURISDICTION_ENABLED_STORAGE_KEY, String(isJurisdictionEnabled));
+  }, [isJurisdictionEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -262,6 +299,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     if (pdf.status === 'done') {
       setResults(null);
       setAnalysisError(null);
+      setJurisdictionStatus(createInitialJurisdictionStatus());
     }
   }, [pdf.status]);
 
@@ -289,13 +327,95 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
         }
 
         const canUseCopilot = isCopilotConfigured && isCopilotAuthenticated && Boolean(copilotModel.trim());
+        const shouldRunJurisdictionScout = canUseCopilot && isJurisdictionEnabled;
+        let jurisdictionContextId = '';
+
+        if (shouldRunJurisdictionScout) {
+          if (!cancelled) {
+            setJurisdictionStatus({
+              status: 'running',
+              triggered: false,
+              contextId: '',
+              message: 'Jurisdiction scout is checking governing law and freelancer residence.',
+              cacheHit: false,
+              governingLaw: null,
+              freelancerResidence: null,
+              insights: [],
+            });
+          }
+
+          try {
+            const scout = await prepareJurisdictionContext({
+              contractText: pdf.text,
+              freelancerResidence,
+              modelName: copilotModel.trim(),
+              useJurisdiction: true,
+            });
+
+            jurisdictionContextId = String(scout?.contextId || '').trim();
+
+            if (!cancelled) {
+              setJurisdictionStatus({
+                status: scout?.triggered ? 'triggered' : 'skipped',
+                triggered: Boolean(scout?.triggered),
+                contextId: jurisdictionContextId,
+                message: scout?.message || (scout?.triggered
+                  ? 'Jurisdiction scout triggered for cross-border review.'
+                  : 'Jurisdiction scout skipped for this contract.'),
+                cacheHit: Boolean(scout?.cacheHit),
+                governingLaw: scout?.governingLaw || null,
+                freelancerResidence: scout?.freelancerResidence || null,
+                insights: Array.isArray(scout?.jurisdictionInsights) ? scout.jurisdictionInsights : [],
+              });
+            }
+          } catch (error) {
+            if (!cancelled) {
+              setJurisdictionStatus({
+                status: 'error',
+                triggered: false,
+                contextId: '',
+                message: error.message || 'Jurisdiction scout failed. Continuing with standard analysis.',
+                cacheHit: false,
+                governingLaw: null,
+                freelancerResidence: null,
+                insights: [],
+              });
+            }
+          }
+        } else if (!cancelled) {
+          if (!isJurisdictionEnabled) {
+            setJurisdictionStatus({
+              status: 'skipped',
+              triggered: false,
+              contextId: '',
+              message: 'Jurisdiction scout is disabled. Running standard clause analysis workflow.',
+              cacheHit: false,
+              governingLaw: null,
+              freelancerResidence: null,
+              insights: [],
+            });
+          } else {
+            setJurisdictionStatus({
+              status: 'skipped',
+              triggered: false,
+              contextId: '',
+              message: 'Jurisdiction scout skipped because GitHub Copilot is not connected.',
+              cacheHit: false,
+              governingLaw: null,
+              freelancerResidence: null,
+              insights: [],
+            });
+          }
+        }
 
         const processClause = async (clause, index) => {
           const patternResult = detectRiskByPattern(clause.cleanText || clause.text);
 
           if (canUseCopilot) {
             try {
-              const apiResponse = await analyzeCopilotClause(clause, copilotModel.trim());
+              const apiResponse = await analyzeCopilotClause(clause, copilotModel.trim(), {
+                jurisdictionContextId,
+              });
               const normalized = normalizeClauseAnalysis(apiResponse, clause);
 
               if (normalized) {
@@ -371,7 +491,17 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     return () => {
       cancelled = true;
     };
-  }, [analyzeCopilotClause, copilotModel, isCopilotAuthenticated, isCopilotConfigured, pdf.status, pdf.text]);
+  }, [
+    analyzeCopilotClause,
+    copilotModel,
+    freelancerResidence,
+    isJurisdictionEnabled,
+    isCopilotAuthenticated,
+    isCopilotConfigured,
+    pdf.status,
+    pdf.text,
+    prepareJurisdictionContext,
+  ]);
 
   const handleFileSelect = (file) => {
     if (!file) return;
@@ -386,6 +516,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     savedRunId.current = null;
     setResults(null);
     setAnalysisError(null);
+    setJurisdictionStatus(createInitialJurisdictionStatus());
     setSelectedFile(file);
     setActiveView(MENU_VIEW.WORKSPACE);
     pdf.extractText(file);
@@ -540,6 +671,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   }, [results]);
 
   const keyInsights = useMemo(() => buildDocumentInsights(pdf.text), [pdf.text]);
+  const jurisdictionInsights = Array.isArray(jurisdictionStatus.insights) ? jurisdictionStatus.insights : [];
+  const hasJurisdictionInsights = jurisdictionInsights.length > 0;
+  const governingCountryLabel = jurisdictionStatus.governingLaw?.country || jurisdictionStatus.governingLaw?.location || '';
+  const residenceCountryLabel = jurisdictionStatus.freelancerResidence?.country || jurisdictionStatus.freelancerResidence?.location || '';
 
   const hasUploadedFile = Boolean(selectedFile);
   const hasResults = Array.isArray(results) && results.length > 0;
@@ -689,6 +824,28 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
         onChange={(event) => setCopilotModel(event.target.value)}
         placeholder={DEFAULT_COPILOT_MODEL}
       />
+
+      <label className="copilot-auth-card__label" htmlFor="freelancer-residence-input">Freelancer Residence</label>
+      <div className="copilot-auth-card__residence-row">
+        <input
+          id="freelancer-residence-input"
+          className="copilot-auth-card__input"
+          type="text"
+          value={freelancerResidence}
+          onChange={(event) => setFreelancerResidence(event.target.value)}
+          placeholder="e.g. India, Singapore, California, USA"
+        />
+
+        <label className="copilot-auth-card__toggle" htmlFor="jurisdiction-toggle-input">
+          <input
+            id="jurisdiction-toggle-input"
+            type="checkbox"
+            checked={isJurisdictionEnabled}
+            onChange={(event) => setIsJurisdictionEnabled(event.target.checked)}
+          />
+          <span>Use Jurisdiction</span>
+        </label>
+      </div>
 
       {isCopilotAuthenticated ? (
         <div className="copilot-auth-card__row">
@@ -1000,6 +1157,13 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
 
               {analysisError && <div className="analysis-alert analysis-alert--error">Analysis error: {analysisError}</div>}
 
+              {jurisdictionStatus.status !== 'idle' && (
+                <div className={`jurisdiction-banner jurisdiction-banner--${jurisdictionStatus.status}`}>
+                  <p className="jurisdiction-banner__title">Jurisdiction Scout</p>
+                  <p className="jurisdiction-banner__text">{jurisdictionStatus.message}</p>
+                </div>
+              )}
+
               {isExtracting && <div className="analysis-status">Extracting text from PDF...</div>}
 
               {analyzing && (
@@ -1057,6 +1221,40 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                   </button>
                 )}
               </section>
+
+              {isJurisdictionEnabled && (
+                <section className="insights-card jurisdiction-insights-card">
+                  <h2 className="insights-card__title">Jurisdiction Insights</h2>
+
+                  {governingCountryLabel && residenceCountryLabel && (
+                    <p className="jurisdiction-insights-card__meta">
+                      Governing Law: <strong>{governingCountryLabel}</strong> | Freelancer Residence: <strong>{residenceCountryLabel}</strong>
+                    </p>
+                  )}
+
+                  {jurisdictionStatus.status === 'running' && (
+                    <p className="insights-card__empty">Fetching Tavily legal research for cross-border terms...</p>
+                  )}
+
+                  {hasJurisdictionInsights && (
+                    <div className="jurisdiction-insights-list">
+                      {jurisdictionInsights.map((insight, index) => (
+                        <JurisdictionInsightItem key={`${insight.topic || insight.label || 'topic'}-${index}`} insight={insight} />
+                      ))}
+                    </div>
+                  )}
+
+                  {jurisdictionStatus.status !== 'running' && !hasJurisdictionInsights && (
+                    <p className="insights-card__empty">
+                      {jurisdictionStatus.message || 'Jurisdiction insights will appear here when cross-border Tavily research is available.'}
+                    </p>
+                  )}
+
+                  {jurisdictionStatus.cacheHit && jurisdictionStatus.status === 'triggered' && (
+                    <p className="jurisdiction-insights-card__cache">Using cached Tavily research for this country pair.</p>
+                  )}
+                </section>
+              )}
             </aside>
           </>
         )}
@@ -1087,6 +1285,58 @@ function InsightItem({ insight }) {
       </button>
 
       {open && <p className="insight-item__detail">{insight.detail}</p>}
+    </article>
+  );
+}
+
+function JurisdictionInsightItem({ insight }) {
+  const [open, setOpen] = useState(false);
+  const sources = Array.isArray(insight?.sources) ? insight.sources.filter((source) => source?.url || source?.snippet || source?.title) : [];
+
+  return (
+    <article className={`insight-item ${open ? 'insight-item--open' : ''}`}>
+      <button type="button" className="insight-item__trigger" onClick={() => setOpen((value) => !value)}>
+        <div className="insight-item__heading">
+          <span className="insight-item__initials">JR</span>
+          <h3 className="insight-item__title">{insight?.label || 'Jurisdiction Topic'}</h3>
+        </div>
+        <span className="insight-item__chevron">{open ? '▼' : '▶'}</span>
+      </button>
+
+      {open && (
+        <div className="jurisdiction-insight-item__body">
+          <p className="insight-item__detail jurisdiction-insight-item__summary">{insight?.summary || 'No Tavily summary available for this topic yet.'}</p>
+
+          {sources.length > 0 ? (
+            <div className="jurisdiction-source-list">
+              {sources.map((source, index) => (
+                source.url ? (
+                  <a
+                    key={`${source.url}-${index}`}
+                    className="jurisdiction-source-link"
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <span className="jurisdiction-source-link__title">{source.title || source.url || `Source ${index + 1}`}</span>
+                    {source.snippet && <span className="jurisdiction-source-link__snippet">{source.snippet}</span>}
+                  </a>
+                ) : (
+                  <div
+                    key={`source-${index}`}
+                    className="jurisdiction-source-link"
+                  >
+                    <span className="jurisdiction-source-link__title">{source.title || `Source ${index + 1}`}</span>
+                    {source.snippet && <span className="jurisdiction-source-link__snippet">{source.snippet}</span>}
+                  </div>
+                )
+              ))}
+            </div>
+          ) : (
+            <p className="insights-card__empty">No direct Tavily sources were returned for this topic.</p>
+          )}
+        </div>
+      )}
     </article>
   );
 }
