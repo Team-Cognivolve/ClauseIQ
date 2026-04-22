@@ -19,13 +19,13 @@ export function B2BAuthPage({ onAuthSuccess, onBackToSelector }) {
   const isSignUp = mode === 'signup';
 
   const title = useMemo(() => (
-    isSignUp ? 'Create B2B Workspace Account' : 'Sign In To B2B Workspace'
+    isSignUp ? 'Create B2B workspace account' : 'Welcome back'
   ), [isSignUp]);
 
   const subtitle = useMemo(() => (
     isSignUp
-      ? 'Set up your organization profile and run policy-based contract compliance checks.'
-      : 'Continue with your B2B compliance workspace.'
+      ? 'Set up your organization profile to run policy-based contract checks.'
+      : 'Sign in to continue to your B2B compliance workspace.'
   ), [isSignUp]);
 
   function updateField(event) {
@@ -33,9 +33,10 @@ export function B2BAuthPage({ onAuthSuccess, onBackToSelector }) {
     setForm((prev) => ({ ...prev, [name]: value }));
   }
 
-  function toggleMode() {
+  function activateMode(nextMode) {
+    if (nextMode === mode) return;
     setError('');
-    setMode((prev) => (prev === 'signin' ? 'signup' : 'signin'));
+    setMode(nextMode);
   }
 
   async function submit(event) {
@@ -89,60 +90,185 @@ export function B2BAuthPage({ onAuthSuccess, onBackToSelector }) {
   }
 
   return (
-    <div className="b2b-auth">
-      <section className="b2b-auth__panel">
-        <button type="button" className="b2b-auth__back" onClick={onBackToSelector}>
-          <span aria-hidden>←</span> Back
+    <div className="b2b-auth-page">
+      <section className="b2b-auth-panel b2b-auth-panel--form">
+        <button type="button" className="b2b-auth-back" onClick={onBackToSelector}>
+          <span aria-hidden>&larr;</span>
+          <span>Back to product selector</span>
         </button>
 
-        <p className="b2b-auth__eyebrow">B2B Compliance</p>
-        <h1 className="b2b-auth__title">{title}</h1>
-        <p className="b2b-auth__subtitle">{subtitle}</p>
+        <div className="b2b-auth-brand b2b-auth-brand--mobile">
+          <span className="b2b-auth-brand__icon" aria-hidden>
+            <svg viewBox="0 0 24 24" className="b2b-auth-brand__icon-svg">
+              <path d="M6 18h12M8.5 15.5l2.8-2.8m-1.2 5.3l5.7-5.7m-3.7-3.8l3.1 3.1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="b2b-auth-brand__name">ClauseIQ B2B</span>
+        </div>
 
-        <form className="b2b-auth__form" onSubmit={submit}>
-          {isSignUp && (
-            <>
-              <label>
-                <span>Contact Name</span>
-                <input name="name" value={form.name} onChange={updateField} placeholder="Your full name" />
-              </label>
+        <div className="b2b-auth-card">
+          <div className="b2b-auth-card__header">
+            <h1 className="b2b-auth-title">{title}</h1>
+            <p className="b2b-auth-subtitle">{subtitle}</p>
+          </div>
 
-              <label>
-                <span>Company Name</span>
-                <input name="companyName" value={form.companyName} onChange={updateField} placeholder="Acme Pvt Ltd" />
-              </label>
+          <div className="b2b-auth-toggle" role="tablist" aria-label="B2B authentication mode">
+            <button
+              type="button"
+              className={`b2b-auth-toggle__btn ${!isSignUp ? 'b2b-auth-toggle__btn--active' : ''}`}
+              onClick={() => activateMode('signin')}
+              role="tab"
+              aria-selected={!isSignUp}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              className={`b2b-auth-toggle__btn ${isSignUp ? 'b2b-auth-toggle__btn--active' : ''}`}
+              onClick={() => activateMode('signup')}
+              role="tab"
+              aria-selected={isSignUp}
+            >
+              Sign Up
+            </button>
+          </div>
 
-              <label>
-                <span>Industry</span>
-                <input name="industry" value={form.industry} onChange={updateField} placeholder="SaaS, Healthcare, Fintech" />
-              </label>
-            </>
-          )}
+          <form className="b2b-auth-form" onSubmit={submit}>
+            {error && (
+              <p className="b2b-auth-error" role="alert">
+                <span aria-hidden>!</span> {error}
+              </p>
+            )}
 
-          <label>
-            <span>Work Email</span>
-            <input type="email" name="email" value={form.email} onChange={updateField} placeholder="you@company.com" />
-          </label>
+            {isSignUp && (
+              <>
+                <label className="b2b-auth-field">
+                  <span className="b2b-auth-field__label">Contact Name</span>
+                  <input
+                    className="b2b-auth-input"
+                    name="name"
+                    value={form.name}
+                    onChange={updateField}
+                    placeholder="Your full name"
+                    autoComplete="name"
+                  />
+                </label>
 
-          <label>
-            <span>Password</span>
-            <input type="password" name="password" value={form.password} onChange={updateField} placeholder="At least 8 characters" />
-          </label>
+                <label className="b2b-auth-field">
+                  <span className="b2b-auth-field__label">Company Name</span>
+                  <input
+                    className="b2b-auth-input"
+                    name="companyName"
+                    value={form.companyName}
+                    onChange={updateField}
+                    placeholder="Acme Inc"
+                    autoComplete="organization"
+                  />
+                </label>
 
-          {error && <p className="b2b-auth__error">{error}</p>}
+                <label className="b2b-auth-field">
+                  <span className="b2b-auth-field__label">Industry</span>
+                  <input
+                    className="b2b-auth-input"
+                    name="industry"
+                    value={form.industry}
+                    onChange={updateField}
+                    placeholder="SaaS, Healthcare, Fintech"
+                  />
+                </label>
+              </>
+            )}
 
-          <button type="submit" disabled={submitting}>
-            {submitting
-              ? (isSignUp ? 'Creating account...' : 'Signing in...')
-              : (isSignUp ? 'Create B2B Account' : 'Sign In')}
-          </button>
-        </form>
+            <label className="b2b-auth-field">
+              <span className="b2b-auth-field__label">Work Email</span>
+              <input
+                className="b2b-auth-input"
+                type="email"
+                name="email"
+                value={form.email}
+                onChange={updateField}
+                placeholder="name@company.com"
+                autoComplete="email"
+              />
+            </label>
 
-        <p className="b2b-auth__switch">
-          {isSignUp ? 'Already have an account?' : 'Need a B2B account?'}
-          {' '}
-          <button type="button" onClick={toggleMode}>{isSignUp ? 'Sign In' : 'Sign Up'}</button>
-        </p>
+            <label className="b2b-auth-field">
+              <div className="b2b-auth-field__meta">
+                <span className="b2b-auth-field__label">Password</span>
+                {!isSignUp && (
+                  <button type="button" className="b2b-auth-inline-link">Forgot?</button>
+                )}
+              </div>
+              <input
+                className="b2b-auth-input"
+                type="password"
+                name="password"
+                value={form.password}
+                onChange={updateField}
+                placeholder={isSignUp ? 'Create a strong password' : 'At least 8 characters'}
+                autoComplete={isSignUp ? 'new-password' : 'current-password'}
+              />
+            </label>
+
+            <button className="b2b-auth-submit" type="submit" disabled={submitting}>
+              <span>
+                {submitting
+                  ? (isSignUp ? 'Creating account...' : 'Signing in...')
+                  : (isSignUp ? 'Create B2B Account' : 'Sign In to Workspace')}
+              </span>
+            </button>
+
+            <div className="b2b-auth-sso-divider" aria-hidden>
+              <span>SSO</span>
+            </div>
+
+            <button type="button" className="b2b-auth-sso">
+              Continue with SAML SSO
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <section className="b2b-auth-panel b2b-auth-panel--context" aria-hidden>
+        <div className="b2b-auth-context__brand">
+          <span className="b2b-auth-brand__icon" aria-hidden>
+            <svg viewBox="0 0 24 24" className="b2b-auth-brand__icon-svg">
+              <path d="M6 18h12M8.5 15.5l2.8-2.8m-1.2 5.3l5.7-5.7m-3.7-3.8l3.1 3.1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="b2b-auth-brand__name">ClauseIQ B2B</span>
+        </div>
+
+        <div className="b2b-auth-context__content">
+          <h2>Policy-Driven Contract Operations.</h2>
+          <p>
+            Give legal and procurement teams a shared B2B workspace to enforce internal
+            policies, monitor partner obligations, and reduce review cycles.
+          </p>
+
+          <div className="b2b-auth-features">
+            <div className="b2b-auth-feature">
+              <span className="b2b-auth-feature__dot" aria-hidden>OK</span>
+              <span>Company-level policy libraries and playbooks</span>
+            </div>
+            <div className="b2b-auth-feature">
+              <span className="b2b-auth-feature__dot" aria-hidden>OK</span>
+              <span>Cross-team reviews with role-based access</span>
+            </div>
+            <div className="b2b-auth-feature">
+              <span className="b2b-auth-feature__dot" aria-hidden>OK</span>
+              <span>Audit-ready logs for every contract decision</span>
+            </div>
+          </div>
+
+          <blockquote className="b2b-auth-testimonial">
+            <p>
+              &quot;Our B2B legal operations team now standardizes reviews across regions
+              while cutting turnaround time by nearly 35%.&quot;
+            </p>
+            <cite>Head of Legal Ops, Global Manufacturing Group</cite>
+          </blockquote>
+        </div>
       </section>
     </div>
   );

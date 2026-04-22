@@ -1,105 +1,477 @@
-.b2b-auth {
+:root {
+  --b2b-bg: #ecf1f6;
+  --b2b-surface: #f7f9fc;
+  --b2b-card: #ffffff;
+  --b2b-border: #c5cfdb;
+  --b2b-border-soft: #d5dee9;
+  --b2b-text: #162131;
+  --b2b-text-muted: #4d5f79;
+  --b2b-primary: #0f2745;
+  --b2b-primary-soft: #3a4f6e;
+  --b2b-danger: #a72222;
+  --b2b-danger-bg: #fdeeee;
+}
+
+.b2b-auth-page {
   min-height: 100vh;
-  background: #f2eee3;
   display: grid;
-  place-items: center;
-  padding: 1rem;
+  grid-template-columns: 1fr 1fr;
+  background: var(--b2b-bg);
+  color: var(--b2b-text);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
 }
 
-.b2b-auth__panel {
-  width: min(620px, 96vw);
-  border: 1px solid rgba(45, 45, 45, 0.12);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.82);
-  padding: 1.2rem;
+.b2b-auth-panel {
+  padding: 24px 32px;
 }
 
-.b2b-auth__back {
-  border: 1px solid rgba(45, 45, 45, 0.14);
-  border-radius: 8px;
+.b2b-auth-panel--form {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  padding-top: 40px;
+}
+
+.b2b-auth-back {
+  align-self: flex-start;
+  border: none;
   background: transparent;
-  color: #2d2d2d;
-  padding: 0.44rem 0.68rem;
-  margin-bottom: 0.8rem;
-  font-family: 'Manrope', sans-serif;
-  font-weight: 600;
-}
-
-.b2b-auth__eyebrow {
-  margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.76rem;
-  color: #5a6159;
-  font-family: 'Manrope', sans-serif;
-  font-weight: 700;
-}
-
-.b2b-auth__title {
-  margin: 0.2rem 0;
-  font-family: 'Newsreader', Georgia, serif;
-  font-size: clamp(1.7rem, 4vw, 2.4rem);
+  color: #364964;
+  font-size: 18px;
   font-weight: 500;
-  color: #2d2d2d;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 6px;
+  margin: 0 0 24px;
+  transition: transform 160ms ease, color 160ms ease;
+  transform-origin: left center;
 }
 
-.b2b-auth__subtitle {
-  margin: 0 0 1rem;
-  color: #5a6159;
+.b2b-auth-back:hover {
+  color: #15283f;
+  transform: translate(-2px, -2px) scale(1.03);
 }
 
-.b2b-auth__form {
-  display: grid;
-  gap: 0.68rem;
+.b2b-auth-back:active {
+  transform: translate(-1px, -1px) scale(1.02);
 }
 
-.b2b-auth__form label {
-  display: grid;
-  gap: 0.3rem;
-  font-family: 'Manrope', sans-serif;
-  font-size: 0.9rem;
+.b2b-auth-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.b2b-auth__form input {
-  border: 1px solid rgba(45, 45, 45, 0.12);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #2d2d2d;
-  padding: 0.62rem 0.7rem;
+.b2b-auth-brand--mobile {
+  display: none;
 }
 
-.b2b-auth__form button {
-  border: 1px solid rgba(45, 45, 45, 0.2);
-  border-radius: 12px;
-  background: linear-gradient(105.1deg, #5f5e5e 0%, #2d2d2d 100%);
+.b2b-auth-brand__icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  background: var(--b2b-primary);
   color: #fff;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-family: 'Manrope', sans-serif;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.b2b-auth-brand__icon-svg {
+  width: 15px;
+  height: 15px;
+}
+
+.b2b-auth-brand__name {
+  font-size: 16px;
   font-weight: 700;
-  padding: 0.72rem 0.8rem;
+  letter-spacing: -0.01em;
 }
 
-.b2b-auth__form button:disabled {
-  opacity: 0.75;
+.b2b-auth-card {
+  width: min(100%, 460px);
+  border: 1px solid var(--b2b-border);
+  border-radius: 8px;
+  background: var(--b2b-card);
+  padding: 20px 18px 18px;
+  box-shadow: 0 10px 18px rgba(15, 25, 42, 0.06);
 }
 
-.b2b-auth__error {
+.b2b-auth-card__header {
+  text-align: center;
+  border-bottom: 1px solid var(--b2b-border-soft);
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+}
+
+.b2b-auth-title {
   margin: 0;
-  color: #9e422c;
-  font-size: 0.88rem;
-}
-
-.b2b-auth__switch {
-  margin: 0.85rem 0 0;
-  color: #5a6159;
-}
-
-.b2b-auth__switch button {
-  border: 0;
-  background: transparent;
-  color: #2d2d2d;
-  font-family: 'Manrope', sans-serif;
+  font-size: 34px;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
   font-weight: 700;
+}
+
+.b2b-auth-subtitle {
+  margin: 8px 0 0;
+  color: var(--b2b-text-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.b2b-auth-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid var(--b2b-border-soft);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 14px;
+  background: #eff3f8;
+}
+
+.b2b-auth-toggle__btn {
+  border: none;
+  background: transparent;
+  color: #2f3b4d;
+  font-size: 14px;
+  padding: 8px 6px;
+  cursor: pointer;
+}
+
+.b2b-auth-toggle__btn--active {
+  background: #ffffff;
+  color: #142238;
+  box-shadow: inset 0 0 0 1px var(--b2b-border);
+}
+
+.b2b-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.b2b-auth-error {
+  margin: 0;
+  border: 1px solid #e4a3a3;
+  background: var(--b2b-danger-bg);
+  color: var(--b2b-danger);
+  border-radius: 2px;
+  padding: 9px 10px;
+  font-size: 14px;
+  line-height: 1.4;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.b2b-auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.b2b-auth-field__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.b2b-auth-field__label {
+  font-size: 12px;
+  color: #2f3e52;
+}
+
+.b2b-auth-inline-link {
+  border: none;
+  background: transparent;
+  color: #1f3250;
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.b2b-auth-inline-link:hover {
   text-decoration: underline;
+}
+
+.b2b-auth-input {
+  width: 100%;
+  border: 1px solid #b6c3d3;
+  border-radius: 0;
+  background: #fff;
+  color: #1d2b3f;
+  font-size: 14px;
+  padding: 10px 11px;
+  outline: none;
+}
+
+.b2b-auth-input:focus {
+  border-color: #7f95b4;
+  box-shadow: 0 0 0 3px rgba(127, 149, 180, 0.18);
+}
+
+.b2b-auth-submit {
+  margin-top: 4px;
+  border: 1px solid #0d223d;
+  background: #0d223d;
+  color: #ffffff;
+  border-radius: 0;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 140ms ease;
+}
+
+.b2b-auth-submit:hover:not(:disabled) {
+  background: #1a3356;
+}
+
+.b2b-auth-submit:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+.b2b-auth-sso-divider {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #60748e;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.b2b-auth-sso-divider::before,
+.b2b-auth-sso-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--b2b-border-soft);
+}
+
+.b2b-auth-sso {
+  border: 1px solid #bcc8d7;
+  background: #f9fbfe;
+  color: #1b2d47;
+  border-radius: 0;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.b2b-auth-sso:hover {
+  background: #f0f5fb;
+  border-color: #aab9cb;
+}
+
+.b2b-auth-panel--context {
+  background: linear-gradient(180deg, #f4f8fd 0%, #ebf1f8 100%);
+  border-left: 1px solid var(--b2b-border);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+}
+
+.b2b-auth-panel--context::before {
+  content: '';
+  position: absolute;
+  right: -120px;
+  bottom: -120px;
+  width: 360px;
+  height: 360px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(148, 171, 202, 0.2), rgba(148, 171, 202, 0));
+}
+
+.b2b-auth-panel--context::after {
+  content: '';
+  position: absolute;
+  left: -80px;
+  top: 26%;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(186, 203, 226, 0.25), rgba(186, 203, 226, 0));
+}
+
+.b2b-auth-context__brand {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.b2b-auth-context__content {
+  position: relative;
+  z-index: 1;
+  max-width: 530px;
+  margin: auto 0;
+}
+
+.b2b-auth-context__content h2 {
+  margin: 0;
+  font-size: clamp(32px, 4.6vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.b2b-auth-context__content p {
+  margin: 20px 0 22px;
+  font-size: 15px;
+  line-height: 1.56;
+  color: #334b67;
+}
+
+.b2b-auth-features {
+  border-top: 1px solid var(--b2b-border-soft);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.b2b-auth-feature {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #25344a;
+  font-size: 15px;
+}
+
+.b2b-auth-feature__dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #dbe8f9;
+  color: #1d3f70;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.b2b-auth-testimonial {
+  position: relative;
+  z-index: 1;
+  margin: 24px 0 0;
+  border: 1px solid var(--b2b-border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.66);
+  padding: 14px 16px;
+}
+
+.b2b-auth-testimonial p {
+  margin: 0;
+  font-size: 14px;
+  font-style: italic;
+  line-height: 1.45;
+  color: #1f2f46;
+}
+
+.b2b-auth-testimonial cite {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #526681;
+  font-style: normal;
+}
+
+@media (max-width: 1100px) {
+  .b2b-auth-panel {
+    padding: 22px 24px;
+  }
+
+  .b2b-auth-back {
+    margin: 0 0 20px;
+  }
+
+  .b2b-auth-context__content h2 {
+    font-size: clamp(30px, 4vw, 48px);
+  }
+}
+
+@media (max-width: 980px) {
+  .b2b-auth-page {
+    grid-template-columns: 1fr;
+  }
+
+  .b2b-auth-panel--form {
+    justify-content: flex-start;
+  }
+
+  .b2b-auth-brand--mobile {
+    display: inline-flex;
+    align-self: center;
+    margin: 2px 0 14px;
+  }
+
+  .b2b-auth-back {
+    margin: 0 0 12px -4px;
+    font-size: 17px;
+  }
+
+  .b2b-auth-panel--context {
+    display: none;
+  }
+
+  .b2b-auth-card {
+    width: min(100%, 560px);
+  }
+}
+
+@media (max-width: 560px) {
+  .b2b-auth-panel {
+    padding: 16px 12px 22px;
+  }
+
+  .b2b-auth-back {
+    margin: 0 0 10px -2px;
+    font-size: 17px;
+  }
+
+  .b2b-auth-card {
+    padding: 16px 12px 14px;
+  }
+
+  .b2b-auth-title {
+    font-size: 30px;
+  }
+
+  .b2b-auth-subtitle,
+  .b2b-auth-input,
+  .b2b-auth-submit,
+  .b2b-auth-sso,
+  .b2b-auth-feature {
+    font-size: 13px;
+  }
+
+  .b2b-auth-error {
+    font-size: 13px;
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .b2b-auth-back,
+  .b2b-auth-submit,
+  .b2b-auth-sso {
+    transition: none;
+  }
 }

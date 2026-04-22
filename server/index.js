@@ -328,6 +328,18 @@ const reviewHistorySchema = new mongoose.Schema(
 reviewHistorySchema.index({ userId: 1, entryId: 1 }, { unique: true });
 
 const ReviewHistory = mongoose.models.ReviewHistory || mongoose.model('ReviewHistory', reviewHistorySchema);
+const DEFAULT_COPILOT_MODEL = 'gpt-4.1';
+const userSettingsSchema = new mongoose.Schema(
+  {
+    userId: { type: mongoose.Schema.Types.ObjectId, required: true, unique: true, index: true },
+    copilotModel: { type: String, default: DEFAULT_COPILOT_MODEL, trim: true, maxlength: 120 },
+    freelancerResidence: { type: String, default: '', trim: true, maxlength: 180 },
+    useJurisdiction: { type: Boolean, default: true },
+  },
+  { timestamps: true },
+);
+
+const UserSettings = mongoose.models.UserSettings || mongoose.model('UserSettings', userSettingsSchema);
 const B2B_POLICY_TYPES = ['freelancers', 'employees', 'vendors'];
 const B2B_POLICY_TYPE_SET = new Set(B2B_POLICY_TYPES);
 
@@ -1176,6 +1188,15 @@ function sanitizeHistoryEntry(input) {
   };
 }
 
+function toSettingsResponse(settingsDoc) {
+  return {
+    copilotModel: safeTrimmedString(settingsDoc?.copilotModel, DEFAULT_COPILOT_MODEL, 120) || DEFAULT_COPILOT_MODEL,
+    freelancerResidence: safeTrimmedString(settingsDoc?.freelancerResidence, '', 180),
+    useJurisdiction: Boolean(settingsDoc?.useJurisdiction),
+    updatedAt: settingsDoc?.updatedAt || null,
+  };
+}
+
 function toHistoryResponse(doc) {
   return {
     id: doc.entryId,
@@ -1491,6 +1512,51 @@ app.post('/api/auth/logout', (_req, res) => {
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   return res.json({ user: req.authUser });
+});
+
+app.get('/api/settings', requireAuth, async (req, res) => {
+  try {
+    const settings = await UserSettings.findOne({ userId: req.authUser._id }).lean();
+    if (!settings) {
+      return res.json({
+        settings: {
+          copilotModel: DEFAULT_COPILOT_MODEL,
+          freelancerResidence: '',
+          useJurisdiction: true,
+          updatedAt: null,
+        },
+      });
+    }
+
+    return res.json({ settings: toSettingsResponse(settings) });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Failed to load settings.');
+  }
+});
+
+app.post('/api/settings', requireAuth, async (req, res) => {
+  try {
+    const payload = {
+      copilotModel: safeTrimmedString(req.body?.copilotModel, DEFAULT_COPILOT_MODEL, 120) || DEFAULT_COPILOT_MODEL,
+      freelancerResidence: safeTrimmedString(req.body?.freelancerResidence, '', 180),
+      useJurisdiction: Boolean(req.body?.useJurisdiction),
+    };
+
+    const settings = await UserSettings.findOneAndUpdate(
+      { userId: req.authUser._id },
+      { $set: payload },
+      {
+        returnDocument: 'after',
+        upsert: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      },
+    ).lean();
+
+    return res.status(201).json({ settings: toSettingsResponse(settings) });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Failed to save settings.');
+  }
 });
 
 app.post('/api/b2b/auth/signup', async (req, res) => {

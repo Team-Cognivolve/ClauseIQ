@@ -22,6 +22,7 @@ export function B2BWorkspace({ user, onSignOut }) {
   const copilot = useGitHubCopilot();
   const [model, setModel] = useState(() => readStoredModel());
   const [activeTab, setActiveTab] = useState('home');
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -280,24 +281,128 @@ export function B2BWorkspace({ user, onSignOut }) {
     }
   }
 
+  async function handleSignOutClick() {
+    if (isSigningOut || typeof onSignOut !== 'function') return;
+    setIsSigningOut(true);
+    try {
+      await onSignOut();
+    } catch {
+      setIsSigningOut(false);
+    }
+  }
+
+  function handleNewAnalysis() {
+    setContractFile(null);
+    setCurrentReview(null);
+    setSelectedReviewId('');
+    setSelectedClauseId('');
+    setStatus('');
+    setError('');
+    setIsAnalyzing(false);
+    setAnalysisProgress(0);
+    setActiveTab('home');
+  }
+
+  const renderCopilotSettingsCard = () => (
+    <article className="b2b-card b2b-settings-card">
+      <div className="b2b-copilot-card__header">
+        <h3>GitHub Copilot</h3>
+        <span className={`b2b-copilot-state ${copilot.isAuthenticated ? 'b2b-copilot-state--ok' : ''}`}>
+          {copilot.isAuthenticated ? 'Connected' : 'Not Connected'}
+        </span>
+      </div>
+
+      <label className="b2b-copilot-label" htmlFor="b2b-copilot-model-input">Model</label>
+      <input
+        id="b2b-copilot-model-input"
+        className="b2b-copilot-input"
+        type="text"
+        value={model}
+        onChange={(event) => setModel(event.target.value)}
+        placeholder="gpt-4.1"
+      />
+
+      {copilot.isAuthenticated ? (
+        <div className="b2b-copilot-row">
+          <p className="b2b-copilot-text">Authenticated for this browser session.</p>
+          <button
+            type="button"
+            className="b2b-copilot-btn b2b-copilot-btn--secondary"
+            onClick={copilot.disconnect}
+          >
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="b2b-copilot-btn"
+          onClick={copilot.startAuth}
+          disabled={!copilot.isConfigured || copilot.isAuthorizing}
+        >
+          {copilot.isAuthorizing ? 'Waiting for GitHub...' : 'Connect GitHub Copilot'}
+        </button>
+      )}
+
+      {copilot.deviceAuth.status === 'waiting' && (
+        <div className="b2b-copilot-device">
+          <span className="b2b-copilot-device__label">Enter this 8-digit code on GitHub</span>
+          <span className="b2b-copilot-device__code">{copilot.deviceAuth.userCode}</span>
+          <a
+            className="b2b-copilot-device__link"
+            href={copilot.deviceAuth.verificationUri}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open github.com/login/device
+          </a>
+        </div>
+      )}
+
+      {copilot.configurationError && (
+        <p className="b2b-copilot-error">{copilot.configurationError}</p>
+      )}
+
+      {copilot.deviceAuth.error && (
+        <p className="b2b-copilot-error">{copilot.deviceAuth.error}</p>
+      )}
+
+      {!copilot.isAuthenticated && !copilot.configurationError && (
+        <p className="b2b-copilot-hint">You can still upload and review with fallback analysis if not connected.</p>
+      )}
+    </article>
+  );
+
   return (
     <div className="b2b-shell">
-      <section className="b2b-toolbar">
-        <div className="b2b-toolbar__identity">
-          <p>{b2bUserLabel(user)}</p>
-          {typeof onSignOut === 'function' && (
-            <button type="button" className="b2b-toolbar__signout" onClick={onSignOut}>Sign out</button>
-          )}
+      <aside className="b2b-toolbar">
+        <div className="b2b-toolbar__brand">
+          <button type="button" className="b2b-toolbar__brand-btn">
+            ClauseIQ B2B
+          </button>
         </div>
 
+        <button type="button" className="b2b-toolbar__new-analysis" onClick={handleNewAnalysis}>
+          + New Analysis
+        </button>
+
         <div className="b2b-toolbar__tabs">
-          <button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => setActiveTab('home')}>Home</button>
+          <button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => setActiveTab('home')}>Workspace</button>
           <button type="button" className={activeTab === 'policy' ? 'active' : ''} onClick={() => setActiveTab('policy')}>Policies</button>
           <button type="button" className={activeTab === 'review' ? 'active' : ''} onClick={() => setActiveTab('review')}>Analysis</button>
         </div>
-      </section>
 
-      <div className="b2b-main">
+        <div className="b2b-toolbar__spacer" />
+
+        <div className="b2b-toolbar__footer">
+          <button type="button" className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>Settings</button>
+          <button type="button" onClick={handleSignOutClick} disabled={isSigningOut}>
+            {isSigningOut ? 'Signing Out...' : 'Sign Out'}
+          </button>
+        </div>
+      </aside>
+
+      <main className="b2b-main">
         {(status || error) && (
           <section className="b2b-status">
             {status && <p className="ok">{status}</p>}
@@ -337,77 +442,10 @@ export function B2BWorkspace({ user, onSignOut }) {
 
           <article className="b2b-card">
             <h3>Snapshot</h3>
+            <p>{b2bUserLabel(user)}</p>
             <p>Policies: {(policies.freelancers?.length || 0) + (policies.employees?.length || 0) + (policies.vendors?.length || 0)}</p>
             <p>Reviews: {reviews.length}</p>
             <p>Copilot: {copilotReady ? 'Connected' : 'Not ready'}</p>
-          </article>
-
-          <article className="b2b-card b2b-span-all">
-            <div className="b2b-copilot-card__header">
-              <h3>GitHub Copilot</h3>
-              <span className={`b2b-copilot-state ${copilot.isAuthenticated ? 'b2b-copilot-state--ok' : ''}`}>
-                {copilot.isAuthenticated ? 'Connected' : 'Not Connected'}
-              </span>
-            </div>
-
-            <label className="b2b-copilot-label" htmlFor="b2b-copilot-model-input">Model</label>
-            <input
-              id="b2b-copilot-model-input"
-              className="b2b-copilot-input"
-              type="text"
-              value={model}
-              onChange={(event) => setModel(event.target.value)}
-              placeholder="gpt-4.1"
-            />
-
-            {copilot.isAuthenticated ? (
-              <div className="b2b-copilot-row">
-                <p className="b2b-copilot-text">Authenticated for this browser session.</p>
-                <button
-                  type="button"
-                  className="b2b-copilot-btn b2b-copilot-btn--secondary"
-                  onClick={copilot.disconnect}
-                >
-                  Disconnect
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="b2b-copilot-btn"
-                onClick={copilot.startAuth}
-                disabled={!copilot.isConfigured || copilot.isAuthorizing}
-              >
-                {copilot.isAuthorizing ? 'Waiting for GitHub...' : 'Connect GitHub Copilot'}
-              </button>
-            )}
-
-            {copilot.deviceAuth.status === 'waiting' && (
-              <div className="b2b-copilot-device">
-                <span className="b2b-copilot-device__label">Enter this 8-digit code on GitHub</span>
-                <span className="b2b-copilot-device__code">{copilot.deviceAuth.userCode}</span>
-                <a
-                  className="b2b-copilot-device__link"
-                  href={copilot.deviceAuth.verificationUri}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open github.com/login/device
-                </a>
-              </div>
-            )}
-
-            {copilot.configurationError && (
-              <p className="b2b-copilot-error">{copilot.configurationError}</p>
-            )}
-
-            {copilot.deviceAuth.error && (
-              <p className="b2b-copilot-error">{copilot.deviceAuth.error}</p>
-            )}
-
-            {!copilot.isAuthenticated && !copilot.configurationError && (
-              <p className="b2b-copilot-hint">You can still upload and review with fallback analysis if not connected.</p>
-            )}
           </article>
 
           <article className="b2b-card b2b-home__quick-analyze">
@@ -451,6 +489,16 @@ export function B2BWorkspace({ user, onSignOut }) {
               <button type="submit" disabled={isAnalyzing}>{isAnalyzing ? 'Analyzing...' : 'Analyze Contract'}</button>
             </form>
           </article>
+          </section>
+        )}
+
+        {activeTab === 'settings' && (
+          <section className="b2b-grid">
+            <article className="b2b-card b2b-span-all">
+              <h2>Settings</h2>
+              <p>Manage your B2B workspace configuration and Copilot connection.</p>
+            </article>
+            {renderCopilotSettingsCard()}
           </section>
         )}
 
@@ -674,7 +722,7 @@ export function B2BWorkspace({ user, onSignOut }) {
               <button type="submit" disabled={chatBusy}>Send</button>
             </form>
           </aside>
-      </div>
+      </main>
     </div>
   );
 }
