@@ -1114,6 +1114,19 @@
   line-height: 1.6;
 }
 
+.detail-section__list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.detail-section__list li {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--workspace-text);
+}
+
 .detail-section--suggestion {
   border-left: 3px solid #2a6d48;
   background: #edf7f1;

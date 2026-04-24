@@ -1798,6 +1798,7 @@ function ClauseCard({ item }) {
   };
 
   const risk = riskConfig[item.risk_level] || riskConfig.Medium;
+  const explanationPoints = toBulletPoints(item.explanation);
 
   return (
     <article className={`clause-card ${risk.cls}`}>
@@ -1826,7 +1827,11 @@ function ClauseCard({ item }) {
         <div className="clause-card__detail">
           <div className="detail-section">
             <h4 className="detail-section__heading">What This Means</h4>
-            <TypingText text={item.explanation} speed={14} />
+            <ul className="detail-section__list">
+              {explanationPoints.map((point, index) => (
+                <li key={`${item._clauseId || item.clause_type || 'clause'}-point-${index}`}>{point}</li>
+              ))}
+            </ul>
           </div>
 
           {item.negotiation && String(item.negotiation).trim() && (
@@ -1839,6 +1844,27 @@ function ClauseCard({ item }) {
       )}
     </article>
   );
+}
+
+function toBulletPoints(text) {
+  const normalizedText = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!normalizedText) return ['Not available.'];
+
+  const lines = normalizedText
+    .split(/\r?\n+/)
+    .map((line) => line.replace(/^[\s\-*•\d.)]+/, '').trim())
+    .filter(Boolean);
+
+  if (lines.length > 1) return lines;
+
+  const sentencePoints = normalizedText
+    .split(/(?<=[.!?])\s+(?=[A-Z])/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+  if (sentencePoints.length > 1) return sentencePoints;
+
+  return [normalizedText];
 }
 
 function TypingText({ text, className = '', as: asTag = 'p', speed = 16 }) {
