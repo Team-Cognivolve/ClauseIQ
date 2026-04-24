@@ -18,6 +18,33 @@ function b2bUserLabel(user) {
   return company || email || 'B2B Workspace';
 }
 
+function toBulletPoints(text) {
+  const rawText = String(text || '').replace(/\r\n?/g, '\n').trim();
+  if (!rawText) return ['Not available.'];
+
+  const segmentedText = rawText
+    .replace(/([^\n])\s[•*]\s+/g, '$1\n- ')
+    .replace(/([^\n])\s-\s+(?=[A-Z0-9"(])/g, '$1\n- ')
+    .replace(/([^\n])\s(?=\d{1,2}[.)]\s)/g, '$1\n');
+
+  const lines = segmentedText
+    .split(/\n+/)
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d{1,2}[.)])\s+/, '').trim())
+    .filter(Boolean);
+
+  if (lines.length > 1) return lines;
+
+  const normalizedText = rawText.replace(/\s+/g, ' ').trim();
+  const sentencePoints = normalizedText
+    .split(/(?<=[.!?])\s+(?=[A-Z])/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+  if (sentencePoints.length > 1) return sentencePoints;
+
+  return [normalizedText];
+}
+
 export function B2BWorkspace({ user, onSignOut }) {
   const copilot = useGitHubCopilot();
   const [model, setModel] = useState(() => readStoredModel());
@@ -684,7 +711,15 @@ export function B2BWorkspace({ user, onSignOut }) {
 
               {chatLog.map((entry, index) => (
                 <div key={index} className={`msg ${entry.role}`}>
-                  <p>{entry.text}</p>
+                  {entry.role === 'assistant' ? (
+                    <ul className="b2b-msg__list">
+                      {toBulletPoints(entry.text).map((point, pointIndex) => (
+                        <li key={`${entry.role}-${index}-point-${pointIndex}`}>{point}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>{entry.text}</p>
+                  )}
                   {entry.citations?.length > 0 && (
                     <small>
                       {(() => {

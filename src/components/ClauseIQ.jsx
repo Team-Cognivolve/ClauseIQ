@@ -1684,7 +1684,15 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
 
               {chatLog.map((entry, index) => (
                 <div key={`${entry.role}-${index}`} className={`clauseiq-msg ${entry.role}`}>
-                  <p>{entry.text}</p>
+                  {entry.role === 'assistant' ? (
+                    <ul className="clauseiq-msg__list">
+                      {toBulletPoints(entry.text).map((point, pointIndex) => (
+                        <li key={`${entry.role}-${index}-point-${pointIndex}`}>{point}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>{entry.text}</p>
+                  )}
                   {entry.role === 'assistant' && entry.citations?.length > 0 && (
                     <small>
                       {entry.citations.map((item) => item.title).join(' | ')}
@@ -1847,16 +1855,22 @@ function ClauseCard({ item }) {
 }
 
 function toBulletPoints(text) {
-  const normalizedText = String(text || '').replace(/\s+/g, ' ').trim();
-  if (!normalizedText) return ['Not available.'];
+  const rawText = String(text || '').replace(/\r\n?/g, '\n').trim();
+  if (!rawText) return ['Not available.'];
 
-  const lines = normalizedText
-    .split(/\r?\n+/)
-    .map((line) => line.replace(/^[\s\-*•\d.)]+/, '').trim())
+  const segmentedText = rawText
+    .replace(/([^\n])\s[•*]\s+/g, '$1\n- ')
+    .replace(/([^\n])\s-\s+(?=[A-Z0-9"(])/g, '$1\n- ')
+    .replace(/([^\n])\s(?=\d{1,2}[.)]\s)/g, '$1\n');
+
+  const lines = segmentedText
+    .split(/\n+/)
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d{1,2}[.)])\s+/, '').trim())
     .filter(Boolean);
 
   if (lines.length > 1) return lines;
 
+  const normalizedText = rawText.replace(/\s+/g, ' ').trim();
   const sentencePoints = normalizedText
     .split(/(?<=[.!?])\s+(?=[A-Z])/)
     .map((sentence) => sentence.trim())

@@ -1519,6 +1519,18 @@
   line-height: 1.45;
 }
 
+.clauseiq-msg__list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: var(--workspace-text);
+}
+
+.clauseiq-msg__list li {
+  line-height: 1.45;
+}
+
 .clauseiq-msg small {
   display: block;
   margin-top: 6px;
