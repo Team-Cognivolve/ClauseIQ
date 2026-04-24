@@ -219,9 +219,48 @@ export function useGitHubCopilot() {
     return data;
   }, [accessToken]);
 
+  const askClauseIQQuestion = useCallback(async ({
+    question,
+    contractText,
+    fileName = '',
+    analysisResults = [],
+    jurisdictionContextId = '',
+    freelancerResidence = '',
+    modelName,
+  }) => {
+    if (!accessToken) {
+      throw new Error('Authenticate with GitHub Copilot before asking contract questions.');
+    }
+
+    if (!modelName || !modelName.trim()) {
+      throw new Error('Enter a GitHub Copilot model name.');
+    }
+
+    const data = await fetchJson('/api/github-copilot/chat/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accessToken,
+        model: modelName.trim(),
+        question,
+        contractText,
+        fileName,
+        analysisResults,
+        jurisdictionContextId: String(jurisdictionContextId || '').trim(),
+        freelancerResidence,
+      }),
+    });
+
+    return {
+      answer: String(data?.answer || '').trim(),
+      citations: Array.isArray(data?.citations) ? data.citations : [],
+    };
+  }, [accessToken]);
+
   return {
     analyzeClause,
     prepareJurisdictionContext,
+    askClauseIQQuestion,
     startAuth,
     disconnect,
     accessToken,

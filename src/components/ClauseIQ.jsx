@@ -14,6 +14,7 @@ import {
   validateAndEnrichAnalysis,
 } from '../utils/rag';
 import { maskPII, demaskResults } from '../utils/piiMasker';
+import chatbotIcon from '../assets/chatbot.png';
 import './ClauseIQ.css';
 
 const DEFAULT_COPILOT_MODEL = 'gpt-4.1';
@@ -216,6 +217,75 @@ const DOCUMENT_TOPICS = [
   { title: 'Dispute Resolution', initials: 'DR', keywords: ['dispute', 'arbitration', 'jurisdiction', 'governing law'] },
 ];
 
+const FALLBACK_INSIGHT_TITLE_BY_KEYWORD = [
+  { title: 'Purpose', keywords: [' purpose ', ' objective ', ' intent '] },
+  { title: 'Scope of Work', keywords: [' scope of work ', ' services ', ' deliverables '] },
+  { title: 'Responsibilities', keywords: [' responsibilities ', ' obligations ', ' duties '] },
+  { title: 'Independent Contractor Status', keywords: [' independent contractor ', ' employment ', ' employee '] },
+  { title: 'Data Protection', keywords: [' privacy ', ' data protection ', ' personal data '] },
+];
+
+function titleCaseWords(value) {
+  return String(value || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+    .trim();
+}
+
+function buildInsightInitials(title, fallbackIndex) {
+  const words = String(title || '').match(/[A-Za-z0-9]+/g) || [];
+  if (words.length >= 2) {
+    return `${words[0].charAt(0)}${words[1].charAt(0)}`.toUpperCase();
+  }
+
+  if (words.length === 1) {
+    const [single] = words;
+    return single.slice(0, 2).toUpperCase().padEnd(2, String(fallbackIndex || 1));
+  }
+
+  return `K${fallbackIndex || 1}`;
+}
+
+function inferFallbackInsightTitle(detail, fallbackIndex) {
+  const sentence = String(detail || '').replace(/\s+/g, ' ').trim();
+  if (!sentence) {
+    return {
+      title: `Key Point ${fallbackIndex}`,
+      initials: `K${fallbackIndex}`,
+    };
+  }
+
+  const allCapsLead = sentence.match(/^(?:\d+(?:\.\d+)*\s*)?([A-Z][A-Z/&-]{2,}(?:\s+[A-Z][A-Z/&-]{2,}){0,3})\b/);
+  if (allCapsLead) {
+    const candidate = titleCaseWords(allCapsLead[1].replace(/[/&-]+/g, ' ').trim());
+    if (candidate) {
+      return {
+        title: candidate,
+        initials: buildInsightInitials(candidate, fallbackIndex),
+      };
+    }
+  }
+
+  const lowered = ` ${sentence.toLowerCase()} `;
+  const keywordMatch = FALLBACK_INSIGHT_TITLE_BY_KEYWORD.find((item) =>
+    item.keywords.some((keyword) => lowered.includes(keyword))
+  );
+  if (keywordMatch) {
+    return {
+      title: keywordMatch.title,
+      initials: buildInsightInitials(keywordMatch.title, fallbackIndex),
+    };
+  }
+
+  return {
+    title: `Key Point ${fallbackIndex}`,
+    initials: `K${fallbackIndex}`,
+  };
+}
+
 function buildDocumentInsights(text) {
   const normalized = String(text || '').replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
@@ -252,14 +322,30 @@ function buildDocumentInsights(text) {
   for (let index = 0; insights.length < 4 && index < sentences.length; index += 1) {
     if (pickedSentenceIndexes.has(index)) continue;
 
+    const fallbackNumber = insights.length + 1;
+    const inferred = inferFallbackInsightTitle(sentences[index], fallbackNumber);
+
     insights.push({
-      title: `Key Point ${insights.length + 1}`,
-      initials: `K${insights.length + 1}`,
+      title: inferred.title,
+      initials: inferred.initials,
       detail: sentences[index],
     });
   }
 
   return insights;
+}
+
+function toClauseIQChatCitations(citations) {
+  if (!Array.isArray(citations)) return [];
+
+  return citations
+    .map((item, index) => ({
+      title: String(item?.title || '').trim() || `Source ${index + 1}`,
+      excerpt: String(item?.excerpt || '').trim(),
+      sourceType: String(item?.sourceType || '').trim(),
+    }))
+    .filter((item) => item.title || item.excerpt)
+    .slice(0, 6);
 }
 
 export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
@@ -268,6 +354,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const {
     analyzeClause: analyzeCopilotClause,
     prepareJurisdictionContext,
+    askClauseIQQuestion,
     configurationError: copilotConfigurationError,
     isAuthenticated: isCopilotAuthenticated,
     isAuthorizing: isCopilotAuthorizing,
@@ -296,6 +383,10 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsNotice, setSettingsNotice] = useState({ type: '', message: '' });
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatQuestion, setChatQuestion] = useState('');
+  const [chatLog, setChatLog] = useState([]);
 
   // PII masking state
   const [userName, setUserName] = useState('');
@@ -384,6 +475,9 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
       setResults(null);
       setAnalysisError(null);
       setJurisdictionStatus(createInitialJurisdictionStatus());
+      setChatLog([]);
+      setChatQuestion('');
+      setIsChatOpen(false);
     }
   }, [pdf.status]);
 
@@ -664,7 +758,55 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     setAnalysisError(null);
     setJurisdictionStatus(createInitialJurisdictionStatus());
     setAnalysisProgress({ processed: 0, total: 0 });
+    setChatLog([]);
+    setChatQuestion('');
+    setChatBusy(false);
+    setIsChatOpen(false);
     pdf.reset();
+  };
+
+  const handleAskClauseIQQuestion = async (event) => {
+    event.preventDefault();
+
+    const userText = String(chatQuestion || '').trim();
+    const contractText = String(pdf.text || '').trim();
+
+    if (!userText || !contractText) return;
+
+    const canUseCopilot = isCopilotConfigured && isCopilotAuthenticated && Boolean(copilotModel.trim());
+    if (!canUseCopilot) {
+      setAnalysisError('Connect GitHub Copilot before asking contract questions.');
+      return;
+    }
+
+    setChatQuestion('');
+    setChatLog((previous) => [...previous, { role: 'user', text: userText, citations: [] }]);
+    setChatBusy(true);
+
+    try {
+      const response = await askClauseIQQuestion({
+        question: userText,
+        contractText,
+        fileName: selectedFile?.name || 'Uploaded contract',
+        analysisResults: Array.isArray(results) ? results : [],
+        jurisdictionContextId: jurisdictionStatus.contextId,
+        freelancerResidence,
+        modelName: copilotModel.trim(),
+      });
+
+      setChatLog((previous) => [
+        ...previous,
+        {
+          role: 'assistant',
+          text: response.answer || 'No response generated.',
+          citations: toClauseIQChatCitations(response.citations),
+        },
+      ]);
+    } catch (error) {
+      setAnalysisError(error.message || 'Failed to ask contract question.');
+    } finally {
+      setChatBusy(false);
+    }
   };
 
   const handleDownloadReport = () => {
@@ -790,6 +932,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const isExtracting = pdf.status === 'extracting';
   const isPdfDone = pdf.status === 'done';
   const canDownloadReport = isPdfDone && !analyzing && Boolean(selectedFile) && Array.isArray(results);
+  const canUseChat = activeView === MENU_VIEW.WORKSPACE && Boolean(selectedFile) && isPdfDone;
   const userInitial = useMemo(() => {
     const source = String(user?.name || user?.email || 'U').trim();
     return source ? source.charAt(0).toUpperCase() : 'U';
@@ -1508,6 +1651,71 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
         onChange={handleFileChange}
         style={{ display: 'none' }}
       />
+
+      {canUseChat && (
+        <>
+          <button
+            type="button"
+            className={`clauseiq-chat-fab ${isChatOpen ? 'is-hidden' : ''}`}
+            onClick={() => setIsChatOpen(true)}
+            aria-label="Open contract chat"
+            aria-expanded={isChatOpen}
+            aria-controls="clauseiq-chat-drawer"
+          >
+            <img src={chatbotIcon} alt="" aria-hidden="true" />
+          </button>
+
+          <aside className={`clauseiq-chat-drawer ${isChatOpen ? 'is-open' : ''}`} id="clauseiq-chat-drawer" aria-hidden={!isChatOpen}>
+            <header className="clauseiq-chat-drawer__header">
+              <h3>ClauseIQ Contract Chat</h3>
+              <button type="button" onClick={() => setIsChatOpen(false)} aria-label="Close contract chat">X</button>
+            </header>
+
+            <p className="clauseiq-chat-drawer__meta">Context: {selectedFile?.name || 'Uploaded contract'}</p>
+
+            <div className="clauseiq-chat-log">
+              {chatLog.length === 0 && !chatBusy && (
+                <p className="clauseiq-chat-muted">
+                  {isPdfDone && pdf.text
+                    ? 'Ask about clauses, risks, negotiation options, or jurisdiction insights from this contract.'
+                    : 'Upload and process a contract PDF first, then ask contract-specific questions here.'}
+                </p>
+              )}
+
+              {chatLog.map((entry, index) => (
+                <div key={`${entry.role}-${index}`} className={`clauseiq-msg ${entry.role}`}>
+                  <p>{entry.text}</p>
+                  {entry.role === 'assistant' && entry.citations?.length > 0 && (
+                    <small>
+                      {entry.citations.map((item) => item.title).join(' | ')}
+                    </small>
+                  )}
+                </div>
+              ))}
+
+              {chatBusy && (
+                <div className="clauseiq-msg assistant thinking" aria-live="polite" aria-label="Chatbot is thinking">
+                  <span className="dot" />
+                  <span className="dot" />
+                  <span className="dot" />
+                </div>
+              )}
+            </div>
+
+            <form className="clauseiq-chat-drawer__composer" onSubmit={handleAskClauseIQQuestion}>
+              <textarea
+                rows={3}
+                value={chatQuestion}
+                onChange={(event) => setChatQuestion(event.target.value)}
+                placeholder="Ask about this contract's clauses, risks, negotiation edits, or jurisdiction impact..."
+              />
+              <button type="submit" disabled={chatBusy || !String(chatQuestion || '').trim() || !String(pdf.text || '').trim()}>
+                {chatBusy ? 'Thinking...' : 'Send'}
+              </button>
+            </form>
+          </aside>
+        </>
+      )}
     </div>
   );
 }

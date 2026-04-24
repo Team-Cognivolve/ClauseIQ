@@ -632,8 +632,9 @@ function buildJurisdictionPromptBlock(context, topic) {
 
   return [
     'Jurisdiction context (only for this clause if relevant):',
-    `- Governing law country: ${context.governingCountry}`,
-    `- Freelancer residence country: ${context.freelancerCountry}`,
+    `- Freelancer residence country (primary legal lens): ${context.freelancerCountry}`,
+    `- Foreign governing law country (cross-border contract lens): ${context.governingCountry}`,
+    '- Prioritize freelancer-side rights, obligations, and remedies in the residence country, and mention foreign-law effects only when they can apply locally.',
     `- ${topicLabel} summary: ${summary.text}`,
     summary.referenceUrl ? `- Reference: ${summary.referenceUrl}` : '',
     'Ignore this context if it does not apply to the clause.',
@@ -755,6 +756,28 @@ async function searchTavily(query, options = {}) {
   return runSearch([]);
 }
 
+function mergeTavilyResults(...resultGroups) {
+  const merged = [];
+  const seenUrls = new Set();
+
+  for (const group of resultGroups) {
+    if (!Array.isArray(group)) continue;
+
+    for (const item of group) {
+      const urlKey = String(item?.url || '').trim().toLowerCase();
+      if (!urlKey || seenUrls.has(urlKey)) continue;
+      seenUrls.add(urlKey);
+      merged.push(item);
+
+      if (merged.length >= 5) {
+        return merged;
+      }
+    }
+  }
+
+  return merged;
+}
+
 function summarizeJurisdictionResearch(results, fallbackTitle) {
   const top = Array.isArray(results)
     ? results.slice(0, 5).map((item) => ({
@@ -795,14 +818,24 @@ async function getOrCreateJurisdictionSummary({ governingCountry, freelancerCoun
   const freelancerGovernmentDomains = getGovernmentDomainsForCountry(freelancerCountry);
   const combinedGovernmentDomains = [...new Set([...governingGovernmentDomains, ...freelancerGovernmentDomains])];
 
-  const nonCompeteQuery = `Official government guidance on enforceability of non-compete clauses for independent contractors in ${governingCountry} 2026.`;
-  const paymentNoticeQuery = `Official government rules on minimum notice period and payment protections for freelancers in ${governingCountry}.`;
-  const taxComplianceQuery = `Official government tax authority guidance on withholding tax requirements for payments from ${freelancerCountry} to independent contractors in ${governingCountry}.`;
+  const searchFreelancerFirst = async (query) => {
+    const freelancerScoped = await searchTavily(query, { allowedDomains: freelancerGovernmentDomains });
+    if (freelancerScoped.length >= 3 || combinedGovernmentDomains.length === 0) {
+      return freelancerScoped;
+    }
+
+    const crossBorderScoped = await searchTavily(query, { allowedDomains: combinedGovernmentDomains });
+    return mergeTavilyResults(freelancerScoped, crossBorderScoped);
+  };
+
+  const nonCompeteQuery = `Official government guidance in ${freelancerCountry} on enforceability of non-compete or restraint of trade clauses against freelancers, including whether foreign governing law from ${governingCountry} can be enforced locally.`;
+  const paymentNoticeQuery = `Official government rules in ${freelancerCountry} on freelancer payment protections, notice periods, and dispute remedies, including treatment of contracts governed by foreign law from ${governingCountry}.`;
+  const taxComplianceQuery = `Official tax authority guidance in ${freelancerCountry} for freelancers receiving cross-border payments from clients in ${governingCountry}, including local reporting duties and whether foreign withholding requirements may still affect residents.`;
 
   const [nonCompeteResults, paymentNoticeResults, taxComplianceResults] = await Promise.all([
-    searchTavily(nonCompeteQuery, { allowedDomains: governingGovernmentDomains }),
-    searchTavily(paymentNoticeQuery, { allowedDomains: governingGovernmentDomains }),
-    searchTavily(taxComplianceQuery, { allowedDomains: combinedGovernmentDomains }),
+    searchFreelancerFirst(nonCompeteQuery),
+    searchFreelancerFirst(paymentNoticeQuery),
+    searchFreelancerFirst(taxComplianceQuery),
   ]);
 
   const summaries = {
@@ -814,21 +847,21 @@ async function getOrCreateJurisdictionSummary({ governingCountry, freelancerCoun
   const insights = [
     {
       topic: 'nonCompete',
-      label: 'Non-compete',
+      label: 'Freelancer Non-compete',
       query: nonCompeteQuery,
       summary: summaries.nonCompete.text,
       sources: summaries.nonCompete.sources || [],
     },
     {
       topic: 'paymentNotice',
-      label: 'Payment and Notice',
+      label: 'Freelancer Payment and Notice',
       query: paymentNoticeQuery,
       summary: summaries.paymentNotice.text,
       sources: summaries.paymentNotice.sources || [],
     },
     {
       topic: 'taxCompliance',
-      label: 'Tax and Compliance',
+      label: 'Freelancer Tax and Compliance',
       query: taxComplianceQuery,
       summary: summaries.taxCompliance.text,
       sources: summaries.taxCompliance.sources || [],
@@ -1125,6 +1158,132 @@ function isB2BChatOutOfScope(question, review) {
 
   const overlap = terms.filter((word) => referenceText.includes(word)).length;
   return overlap === 0;
+}
+
+const CLAUSEIQ_CHAT_REFUSAL = 'I can only assist with questions about the uploaded contract and its ClauseIQ analysis. Please ask a contract-specific question.';
+const CLAUSEIQ_CHAT_SCOPE_KEYWORDS = [
+  'contract', 'clause', 'risk', 'analysis', 'negotiation', 'negotiate',
+  'payment', 'invoice', 'fee', 'notice', 'termination', 'confidentiality',
+  'liability', 'indemnity', 'intellectual property', 'ip', 'dispute',
+  'arbitration', 'governing law', 'jurisdiction', 'tax', 'non-compete',
+  'freelancer', 'client', 'service', 'scope', 'deliverable', 'obligation',
+  'breach', 'purpose', 'renewal', 'timeline', 'penalty', 'remedy',
+];
+
+function tokenizeSearchTerms(text, minLength = 3, maxTerms = 36) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length >= minLength)
+    .slice(0, maxTerms);
+}
+
+function isClauseIQChatOutOfScope(question, contractText, normalizedResults) {
+  const q = String(question || '').toLowerCase();
+  if (!q) return true;
+
+  if (CLAUSEIQ_CHAT_SCOPE_KEYWORDS.some((keyword) => q.includes(keyword))) {
+    return false;
+  }
+
+  const referenceText = [
+    String(contractText || '').slice(0, 12000),
+    ...((Array.isArray(normalizedResults) ? normalizedResults : []).slice(0, 30).map((item) => [
+      item?.clause_type,
+      item?.clause_text,
+      item?.explanation,
+      item?.negotiation,
+    ].join(' '))),
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  const terms = tokenizeSearchTerms(q, 4, 24);
+  if (terms.length === 0) return true;
+
+  const overlap = terms.filter((word) => referenceText.includes(word)).length;
+  return overlap === 0;
+}
+
+function scoreTextAgainstTerms(text, terms) {
+  if (!Array.isArray(terms) || terms.length === 0) return 0;
+  const lowered = String(text || '').toLowerCase();
+  if (!lowered) return 0;
+
+  let score = 0;
+  const seen = new Set();
+  for (const term of terms) {
+    if (!term || seen.has(term)) continue;
+    seen.add(term);
+    if (lowered.includes(term)) {
+      score += 1;
+    }
+  }
+  return score;
+}
+
+function normalizeClauseIQChatResults(items) {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .slice(0, 80)
+    .map((item, index) => ({
+      clauseId: safeTrimmedString(item?._clauseId, `cl-${index + 1}`, 120),
+      clause_type: safeTrimmedString(item?.clause_type, 'General Clause', 160),
+      clause_text: safeTrimmedString(item?.clause_text, '', 3000),
+      explanation: safeTrimmedString(item?.explanation, '', 1600),
+      negotiation: safeTrimmedString(item?.negotiation, '', 1600),
+      risk_level: normalizeRiskLevel(safeTrimmedString(item?.risk_level, 'Medium', 20), 'Medium'),
+    }))
+    .filter((item) => item.clause_text || item.explanation || item.negotiation);
+}
+
+function buildClauseIQChatCitations(question, contractText, normalizedResults) {
+  const terms = tokenizeSearchTerms(question, 4, 30);
+  const fromResults = (Array.isArray(normalizedResults) ? normalizedResults : [])
+    .map((item) => {
+      const score = scoreTextAgainstTerms([
+        item.clause_type,
+        item.clause_text,
+        item.explanation,
+        item.negotiation,
+      ].join(' '), terms);
+
+      return {
+        sourceType: 'analysis',
+        clauseId: item.clauseId,
+        title: `${item.clause_type} (${item.risk_level} Risk)`,
+        excerpt: safeTrimmedString(item.clause_text || item.explanation || item.negotiation, '', 300),
+        score,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const selected = fromResults.filter((item) => item.score > 0).slice(0, 6);
+
+  if (selected.length < 3) {
+    const fallbackClauses = filterSubstantiveClauses(extractClauses(contractText || ''))
+      .slice(0, 80)
+      .map((clause) => ({
+        sourceType: 'contract',
+        clauseId: safeTrimmedString(clause?.id, '', 120),
+        title: safeTrimmedString(clause?.header, 'Contract Clause', 160),
+        excerpt: safeTrimmedString(clause?.cleanText || clause?.text || '', '', 300),
+        score: scoreTextAgainstTerms(clause?.cleanText || clause?.text || '', terms),
+      }))
+      .filter((item) => item.excerpt)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6);
+
+    for (const clause of fallbackClauses) {
+      if (selected.length >= 6) break;
+      if (selected.some((item) => item.excerpt === clause.excerpt)) continue;
+      selected.push(clause);
+    }
+  }
+
+  return selected.slice(0, 6);
 }
 
 function safeTrimmedString(value, fallback = '', maxLength = 5000) {
@@ -2323,6 +2482,87 @@ app.post('/api/github-copilot/jurisdiction-scout', requireAuth, async (req, res)
     });
   } catch (error) {
     return jsonError(res, 500, error.message || 'Jurisdiction scout failed.');
+  }
+});
+
+app.post('/api/github-copilot/chat/ask', requireAuth, async (req, res) => {
+  const question = safeTrimmedString(req.body?.question, '', 1400);
+  const fileName = safeTrimmedString(req.body?.fileName, 'Uploaded contract', 260);
+  const contractText = safeTrimmedString(req.body?.contractText, '', 180000);
+  const jurisdictionContextId = safeTrimmedString(req.body?.jurisdictionContextId, '', 120);
+  const freelancerResidence = safeTrimmedString(req.body?.freelancerResidence, '', 180);
+  const normalizedResults = normalizeClauseIQChatResults(req.body?.analysisResults);
+
+  if (!question) {
+    return jsonError(res, 400, 'question is required.');
+  }
+
+  if (!contractText || contractText.length < 80) {
+    return jsonError(res, 400, 'contractText is required.');
+  }
+
+  const copilotContext = resolveCopilotContext(req);
+  if (copilotContext.error) {
+    return jsonError(res, 400, copilotContext.error);
+  }
+
+  if (isClauseIQChatOutOfScope(question, contractText, normalizedResults)) {
+    return res.json({
+      answer: CLAUSEIQ_CHAT_REFUSAL,
+      citations: [],
+    });
+  }
+
+  try {
+    const citations = buildClauseIQChatCitations(question, contractText, normalizedResults);
+    const jurisdictionContext = getJurisdictionContext(jurisdictionContextId);
+    const jurisdictionContextBlock = jurisdictionContext
+      ? [
+        `Freelancer residence: ${jurisdictionContext.freelancerCountry || 'Unknown'}`,
+        `Governing law: ${jurisdictionContext.governingCountry || 'Unknown'}`,
+        `Non-compete context: ${jurisdictionContext.summaries?.nonCompete?.text || 'N/A'}`,
+        `Payment/notice context: ${jurisdictionContext.summaries?.paymentNotice?.text || 'N/A'}`,
+        `Tax/compliance context: ${jurisdictionContext.summaries?.taxCompliance?.text || 'N/A'}`,
+      ].join('\n')
+      : 'No jurisdiction context available for this contract.';
+
+    const prompt = [
+      'You are ClauseIQ assistant for freelancers reviewing their contract.',
+      'Answer using only the provided contract text, clause analysis, and jurisdiction context.',
+      `If the user asks outside that scope, reply exactly with: "${CLAUSEIQ_CHAT_REFUSAL}"`,
+      'Respond in concise bullet points and include practical negotiation guidance when relevant.',
+      'When foreign governing law is mentioned, explain local freelancer-country impact only when support exists in provided context.',
+      '',
+      `Question: ${question}`,
+      '',
+      `Contract file: ${fileName}`,
+      freelancerResidence ? `Freelancer residence (user-provided): ${freelancerResidence}` : 'Freelancer residence (user-provided): N/A',
+      '',
+      'Jurisdiction context:',
+      jurisdictionContextBlock,
+      '',
+      'Top cited contract evidence:',
+      JSON.stringify(citations, null, 2),
+      '',
+      'ClauseIQ analysis results (normalized):',
+      JSON.stringify(normalizedResults.slice(0, 36), null, 2),
+      '',
+      'Contract text excerpt (truncated):',
+      safeTrimmedString(contractText, '', 36000),
+    ].join('\n');
+
+    const answer = await runCopilotPrompt({
+      accessToken: copilotContext.accessToken,
+      model: copilotContext.model,
+      prompt,
+    });
+
+    return res.json({
+      answer,
+      citations,
+    });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Failed to answer ClauseIQ question.');
   }
 });
 
