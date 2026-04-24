@@ -586,17 +586,17 @@
   bottom: 16px;
   z-index: 30;
   border: 0;
-  border-radius: 999px;
+  border-radius: 0;
   background: transparent;
   padding: 0;
   line-height: 0;
-  box-shadow: 0 10px 26px rgba(15, 39, 69, 0.26);
+  box-shadow: none;
   transition: transform 0.3s ease, box-shadow 0.18s ease, opacity 0.24s ease;
 }
 
 .b2b-chat-fab:hover {
   transform: translateY(-1px) scale(1.02);
-  box-shadow: 0 14px 30px rgba(15, 39, 69, 0.28);
+  box-shadow: none;
 }
 
 .b2b-chat-fab:focus-visible {
@@ -606,9 +606,9 @@
 
 .b2b-chat-fab img {
   display: block;
-  width: 80px;
+  width: 68px;
   height: auto;
-  border-radius: 999px;
+  border-radius: 0;
 }
 
 .b2b-chat-fab.is-hidden {
