@@ -741,77 +741,14 @@
   margin: 0;
 }
 
-.pricing-b2b {
-  margin-top: 44px;
-  border: 1px solid #d6dce8;
-  border-radius: 14px;
-  background: #fff;
-  padding: 24px;
-}
-
-.pricing-b2b__title {
-  margin: 0;
-  font-size: 28px;
-  letter-spacing: -0.02em;
-}
-
-.pricing-b2b__grid {
-  margin-top: 16px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.pricing-b2b__card {
-  border: 1px solid #dce2ed;
-  border-radius: 10px;
-  padding: 16px;
-  background: #f8fafd;
-  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease, background-color 200ms ease;
-}
-
-.pricing-b2b__card:hover {
-  transform: translateY(-4px);
-  border-color: #b8c7df;
-  background: #ffffff;
-  box-shadow: 0 12px 24px rgba(51, 74, 115, 0.12);
-}
-
-.pricing-b2b__card h4 {
-  margin: 0;
-  font-size: 22px;
-}
-
-.pricing-b2b__price {
-  margin: 8px 0 0;
-  font-size: 16px;
-  color: #263349;
-  font-weight: 600;
-}
-
-.pricing-b2b__detail {
-  margin: 8px 0 0;
-  font-size: 14px;
-  color: #52617b;
-  line-height: 1.5;
-}
-
-.pricing-b2b__overage {
-  margin: 16px 0 0;
-  font-size: 14px;
-  color: #4e5d77;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .pricing-card,
-  .pricing-card__button,
-  .pricing-b2b__card {
+  .pricing-card__button {
     transition: none;
   }
 
   .pricing-card:hover,
-  .pricing-card__button:hover,
-  .pricing-b2b__card:hover {
+  .pricing-card__button:hover {
     transform: none;
     box-shadow: none;
   }
@@ -998,8 +935,7 @@
   }
 
   .intelligence__cards,
-  .pricing__grid,
-  .pricing-b2b__grid {
+  .pricing__grid {
     grid-template-columns: 1fr;
   }
 

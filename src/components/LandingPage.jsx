@@ -52,24 +52,6 @@ const pricingPlans = [
   },
 ];
 
-const b2bPlans = [
-  {
-    title: 'Starter',
-    price: 'INR 3,999/month',
-    detail: '5 seats · 400 reviews · 120 jurisdiction scouts',
-  },
-  {
-    title: 'Growth',
-    price: 'INR 11,999/month',
-    detail: '20 seats · 1,800 reviews · 540 jurisdiction scouts',
-  },
-  {
-    title: 'Scale',
-    price: 'INR 29,999/month',
-    detail: '75 seats · 5,000 reviews · 1,500 jurisdiction scouts',
-  },
-];
-
 function PricingCard({ plan, onClick, featured }) {
   return (
     <div className={`pricing-card ${featured ? 'pricing-card--featured' : ''}`}>
@@ -332,22 +314,6 @@ export function LandingPage({ onEnterApp }) {
             <PricingCard plan={pricingPlans[0]} onClick={onEnterApp} />
             <PricingCard plan={pricingPlans[1]} onClick={onEnterApp} featured />
             <PricingCard plan={pricingPlans[2]} onClick={onEnterApp} />
-          </div>
-
-          <div className="pricing-b2b">
-            <h3 className="pricing-b2b__title">B2B Compliance Workspace Plans</h3>
-            <div className="pricing-b2b__grid">
-              {b2bPlans.map((plan) => (
-                <article key={plan.title} className="pricing-b2b__card">
-                  <h4>{plan.title}</h4>
-                  <p className="pricing-b2b__price">{plan.price}</p>
-                  <p className="pricing-b2b__detail">{plan.detail}</p>
-                </article>
-              ))}
-            </div>
-            <p className="pricing-b2b__overage">
-              Overage pricing: INR 7 per additional contract review and INR 5 per additional jurisdiction scout.
-            </p>
           </div>
         </div>
       </section>
