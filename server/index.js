@@ -37,7 +37,7 @@ const jwtCookieName = 'clauseiq_auth';
 const b2bJwtCookieName = 'clauseiq_b2b_auth';
 const clientCache = new Map();
 const JURISDICTION_CONTEXT_TTL_MS = 30 * 60 * 1000;
-const JURISDICTION_PAIR_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const JURISDICTION_PAIR_CACHE_TTL_MS = 1000;
 const jurisdictionContextStore = new Map();
 const jurisdictionPairCache = new Map();
 
@@ -828,14 +828,14 @@ async function getOrCreateJurisdictionSummary({ governingCountry, freelancerCoun
     return mergeTavilyResults(freelancerScoped, crossBorderScoped);
   };
 
-  const nonCompeteQuery = `Official government guidance in ${freelancerCountry} on enforceability of non-compete or restraint of trade clauses against freelancers, including whether foreign governing law from ${governingCountry} can be enforced locally.`;
-  const paymentNoticeQuery = `Official government rules in ${freelancerCountry} on freelancer payment protections, notice periods, and dispute remedies, including treatment of contracts governed by foreign law from ${governingCountry}.`;
-  const taxComplianceQuery = `Official tax authority guidance in ${freelancerCountry} for freelancers receiving cross-border payments from clients in ${governingCountry}, including local reporting duties and whether foreign withholding requirements may still affect residents.`;
+  const nonCompeteQuery = `Enforceability of ${governingCountry} non-compete clauses for freelancers residing in ${freelancerCountry} under local ${freelancerCountry} labor and contract laws.`;
+  const paymentNoticeQuery = `Legal protections for freelancers in ${freelancerCountry} regarding payment terms and notice periods when the contract is governed by ${governingCountry} law.`;
+  const taxComplianceQuery = `Cross-border tax reporting and withholding obligations for a freelancer in ${freelancerCountry} working for a client in ${governingCountry} under ${governingCountry} governing law.`;
 
   const [nonCompeteResults, paymentNoticeResults, taxComplianceResults] = await Promise.all([
-    searchFreelancerFirst(nonCompeteQuery),
-    searchFreelancerFirst(paymentNoticeQuery),
-    searchFreelancerFirst(taxComplianceQuery),
+    searchTavily(nonCompeteQuery, { allowedDomains: combinedGovernmentDomains }),
+    searchTavily(paymentNoticeQuery, { allowedDomains: combinedGovernmentDomains }),
+    searchTavily(taxComplianceQuery, { allowedDomains: combinedGovernmentDomains }),
   ]);
 
   const summaries = {
