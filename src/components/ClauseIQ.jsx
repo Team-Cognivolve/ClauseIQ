@@ -387,6 +387,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatQuestion, setChatQuestion] = useState('');
   const [chatLog, setChatLog] = useState([]);
+  const [riskFilter, setRiskFilter] = useState('All');
 
   // PII masking state
   const [userName, setUserName] = useState('');
@@ -1526,20 +1527,32 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                     </div>
 
                     <div className="risk-count-grid">
-                      <div className="risk-count risk-count--high">
+                      <button
+                        type="button"
+                        className={`risk-count risk-count--high ${riskFilter === 'High' ? 'risk-count--active' : ''}`}
+                        onClick={() => setRiskFilter(riskFilter === 'High' ? 'All' : 'High')}
+                      >
                         <strong className="risk-count__value">{riskCounts.high}</strong>
                         <span className="risk-count__label">High Risk</span>
-                      </div>
+                      </button>
 
-                      <div className="risk-count risk-count--medium">
+                      <button
+                        type="button"
+                        className={`risk-count risk-count--medium ${riskFilter === 'Medium' ? 'risk-count--active' : ''}`}
+                        onClick={() => setRiskFilter(riskFilter === 'Medium' ? 'All' : 'Medium')}
+                      >
                         <strong className="risk-count__value">{riskCounts.medium}</strong>
                         <span className="risk-count__label">Medium Risk</span>
-                      </div>
+                      </button>
 
-                      <div className="risk-count risk-count--low">
+                      <button
+                        type="button"
+                        className={`risk-count risk-count--low ${riskFilter === 'Low' ? 'risk-count--active' : ''}`}
+                        onClick={() => setRiskFilter(riskFilter === 'Low' ? 'All' : 'Low')}
+                      >
                         <strong className="risk-count__value">{riskCounts.low}</strong>
                         <span className="risk-count__label">Low Risk</span>
-                      </div>
+                      </button>
                     </div>
                   </section>
                 </section>
@@ -1599,13 +1612,27 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
 
                 {hasResults && (
                   <section className="risk-analysis-section">
-                    <div className="risk-analysis-section__head">
-                      <h2 className="risk-analysis-section__title">Clause Analysis</h2>
+                    <div className="risk-analysis-section__head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h2 className="risk-analysis-section__title">
+                        Clause Analysis {riskFilter !== 'All' ? `(${riskFilter})` : ''}
+                      </h2>
+                      {riskFilter !== 'All' && (
+                        <button
+                          type="button"
+                          className="analysis-header__action-btn"
+                          onClick={() => setRiskFilter('All')}
+                          style={{ padding: '4px 8px', fontSize: '11px' }}
+                        >
+                          Show All
+                        </button>
+                      )}
                     </div>
                     <div className="clauses-list">
-                      {results.map((item, index) => (
-                        <ClauseCard key={item._clauseId || `${item.clause_type}-${index}`} item={item} />
-                      ))}
+                      {results
+                        .filter((item) => riskFilter === 'All' || item.risk_level === riskFilter)
+                        .map((item, index) => (
+                          <ClauseCard key={item._clauseId || `${item.clause_type}-${index}`} item={item} />
+                        ))}
                     </div>
                   </section>
                 )}
