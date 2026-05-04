@@ -783,25 +783,27 @@ function summarizeJurisdictionResearch(results, fallbackTitle) {
     ? results.slice(0, 5).map((item) => ({
       title: safeTrimmedString(item?.title, '', 180),
       url: safeTrimmedString(item?.url, '', 500),
-      snippet: safeTrimmedString(item?.content, '', 260),
+      snippet: safeTrimmedString(item?.content, '', 1200),
     }))
     : [];
-  const snippets = top
-    .map((item) => item.snippet)
-    .filter(Boolean);
 
-  const text = snippets.length
-    ? snippets.join(' ')
-    : `No specific ${fallbackTitle} guidance was found in the quick legal scout.`;
+  const rawResearch = top
+    .map((item) => `Source: ${item.title}\nContent: ${item.snippet}`)
+    .join('\n\n');
 
   return {
-    text,
+    rawResearch,
     referenceUrl: safeTrimmedString(top[0]?.url, '', 500),
     sources: top,
   };
 }
 
-async function getOrCreateJurisdictionSummary({ governingCountry, freelancerCountry }) {
+async function getOrCreateJurisdictionSummary({
+  governingCountry,
+  freelancerCountry,
+  accessToken,
+  model,
+}) {
   cleanupJurisdictionCaches();
 
   const pairKey = buildJurisdictionPairKey(governingCountry, freelancerCountry);
@@ -818,16 +820,6 @@ async function getOrCreateJurisdictionSummary({ governingCountry, freelancerCoun
   const freelancerGovernmentDomains = getGovernmentDomainsForCountry(freelancerCountry);
   const combinedGovernmentDomains = [...new Set([...governingGovernmentDomains, ...freelancerGovernmentDomains])];
 
-  const searchFreelancerFirst = async (query) => {
-    const freelancerScoped = await searchTavily(query, { allowedDomains: freelancerGovernmentDomains });
-    if (freelancerScoped.length >= 3 || combinedGovernmentDomains.length === 0) {
-      return freelancerScoped;
-    }
-
-    const crossBorderScoped = await searchTavily(query, { allowedDomains: combinedGovernmentDomains });
-    return mergeTavilyResults(freelancerScoped, crossBorderScoped);
-  };
-
   const nonCompeteQuery = `Enforceability of ${governingCountry} non-compete clauses for freelancers residing in ${freelancerCountry} under local ${freelancerCountry} labor and contract laws.`;
   const paymentNoticeQuery = `Legal protections for freelancers in ${freelancerCountry} regarding payment terms and notice periods when the contract is governed by ${governingCountry} law.`;
   const taxComplianceQuery = `Cross-border tax reporting and withholding obligations for a freelancer in ${freelancerCountry} working for a client in ${governingCountry} under ${governingCountry} governing law.`;
@@ -838,10 +830,45 @@ async function getOrCreateJurisdictionSummary({ governingCountry, freelancerCoun
     searchTavily(taxComplianceQuery, { allowedDomains: combinedGovernmentDomains }),
   ]);
 
-  const summaries = {
+  const rawSummaries = {
     nonCompete: summarizeJurisdictionResearch(nonCompeteResults, 'non-compete'),
     paymentNotice: summarizeJurisdictionResearch(paymentNoticeResults, 'payment/notice'),
     taxCompliance: summarizeJurisdictionResearch(taxComplianceResults, 'tax/compliance'),
+  };
+
+  const synthesizeSummary = async (topic, researchData) => {
+    if (!researchData.rawResearch) {
+      return `No specific ${topic} guidance was found in the quick legal scout for ${freelancerCountry} regarding ${governingCountry} governing law.`;
+    }
+
+    const prompt = [
+      `Synthesize a short, professional, and easy-to-read summary (2-3 sentences) about "${topic}" for a freelancer in ${freelancerCountry} dealing with a contract governed by ${governingCountry} law.`,
+      'Use the following raw research results to inform your summary. Focus on practical implications and use simple English.',
+      'If the research is conflicting or unclear, provide a cautious general overview.',
+      '',
+      'Raw Research:',
+      researchData.rawResearch,
+    ].join('\n');
+
+    try {
+      return await runCopilotPrompt({ accessToken, model, prompt });
+    } catch (error) {
+      console.error(`Failed to synthesize AI summary for ${topic}:`, error);
+      // Fallback to a very simple truncation of the first snippet if AI fails
+      return researchData.sources[0]?.snippet.slice(0, 200) + '...';
+    }
+  };
+
+  const [nonCompeteText, paymentNoticeText, taxComplianceText] = await Promise.all([
+    synthesizeSummary('Non-compete Enforceability', rawSummaries.nonCompete),
+    synthesizeSummary('Payment Protections & Notice', rawSummaries.paymentNotice),
+    synthesizeSummary('Tax & Compliance', rawSummaries.taxCompliance),
+  ]);
+
+  const summaries = {
+    nonCompete: { ...rawSummaries.nonCompete, text: nonCompeteText },
+    paymentNotice: { ...rawSummaries.paymentNotice, text: paymentNoticeText },
+    taxCompliance: { ...rawSummaries.taxCompliance, text: taxComplianceText },
   };
 
   const insights = [
@@ -2450,6 +2477,8 @@ app.post('/api/github-copilot/jurisdiction-scout', requireAuth, async (req, res)
     const summaryResponse = await getOrCreateJurisdictionSummary({
       governingCountry: governingLaw.country,
       freelancerCountry: freelancerSignal.country,
+      accessToken: copilotContext.accessToken,
+      model: copilotContext.model,
     });
 
     const contextId = createEphemeralId('jur');
