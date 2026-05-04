@@ -85,6 +85,18 @@ async function saveHistoryToServer(entry) {
   }
 }
 
+async function deleteHistoryFromServer(entryId) {
+  const response = await fetch(`/api/history/${encodeURIComponent(entryId)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || 'Failed to delete history from server.');
+  }
+}
+
 async function fetchUserSettingsFromServer() {
   const response = await fetch('/api/settings', {
     credentials: 'include',
@@ -379,6 +391,7 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const [historySearch, setHistorySearch] = useState('');
   const [historyRiskFilter, setHistoryRiskFilter] = useState('All');
   const [selectedHistoryId, setSelectedHistoryId] = useState(null);
+  const [deletingHistoryId, setDeletingHistoryId] = useState(null);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -1029,6 +1042,29 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
     [analyzedHistory, selectedHistoryId],
   );
 
+  const handleDeleteHistoryEntry = async (entryId) => {
+    const entry = analyzedHistory.find((item) => item.id === entryId);
+    if (!entry || deletingHistoryId) return;
+
+    const confirmed = window.confirm(`Delete "${entry.fileName}" from review history?`);
+    if (!confirmed) return;
+
+    setDeletingHistoryId(entryId);
+
+    try {
+      await deleteHistoryFromServer(entryId);
+      setAnalysisHistory((previous) => previous.filter((item) => item.id !== entryId));
+      if (selectedHistoryId === entryId) {
+        setSelectedHistoryId(null);
+        setActiveView(MENU_VIEW.HISTORY);
+      }
+    } catch (error) {
+      window.alert(error.message || 'Failed to delete history entry.');
+    } finally {
+      setDeletingHistoryId(null);
+    }
+  };
+
   const renderUploadBox = () => (
     <div
       className={`upload-dropzone ${isDraggingUpload ? 'upload-dropzone--dragging' : ''}`}
@@ -1255,13 +1291,22 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
       ) : (
         <div className="history-list">
           {filteredHistory.map((entry) => (
-            <button
-              type="button"
+            <div
               key={entry.id}
               className={`history-item ${selectedHistoryId === entry.id ? 'history-item--active' : ''}`}
+              role="button"
+              tabIndex={0}
               onClick={() => {
                 setSelectedHistoryId(entry.id);
                 setActiveView(MENU_VIEW.HISTORY_DETAIL);
+              }}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setSelectedHistoryId(entry.id);
+                  setActiveView(MENU_VIEW.HISTORY_DETAIL);
+                }
               }}
             >
               <div className="history-item__main">
@@ -1278,7 +1323,19 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                   <span className="history-item__count history-item__count--low">L {entry.summary?.low || 0}</span>
                 </div>
               </div>
-            </button>
+              <button
+                type="button"
+                className="history-item__delete"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleDeleteHistoryEntry(entry.id);
+                }}
+                disabled={deletingHistoryId === entry.id}
+                aria-label={`Delete ${entry.fileName} from history`}
+              >
+                {deletingHistoryId === entry.id ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
           ))}
         </div>
       )}

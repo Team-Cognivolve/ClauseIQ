@@ -1973,6 +1973,28 @@ app.post('/api/history', requireAuth, async (req, res) => {
   }
 });
 
+app.delete('/api/history/:entryId', requireAuth, async (req, res) => {
+  const entryId = safeTrimmedString(req.params.entryId, '', 80);
+  if (!entryId) {
+    return jsonError(res, 400, 'Invalid history entry id.');
+  }
+
+  try {
+    const deleted = await ReviewHistory.findOneAndDelete({
+      userId: req.authUser._id,
+      entryId,
+    }).lean();
+
+    if (!deleted) {
+      return jsonError(res, 404, 'History entry not found.');
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Failed to delete review history.');
+  }
+});
+
 app.get('/api/b2b/company/profile', requireB2BAuth, async (req, res) => {
   try {
     const profile = await CompanyProfile.findOne({ userId: req.b2bAuthUser._id }).lean();

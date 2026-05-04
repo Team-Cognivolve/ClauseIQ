@@ -1276,6 +1276,10 @@
   border-radius: 14px;
   background: #ffffff;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   text-align: left;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -1287,6 +1291,8 @@
 }
 
 .history-item__main {
+  flex: 1;
+  min-width: 0;
   padding: 16px 18px;
 }
 
@@ -1355,6 +1361,29 @@
 
 .history-item__count--low {
   color: var(--workspace-olive);
+}
+
+.history-item__delete {
+  margin-right: 18px;
+  border: 1px solid rgba(177, 74, 52, 0.28);
+  border-radius: 10px;
+  background: rgba(177, 74, 52, 0.08);
+  color: var(--workspace-red);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 700;
+  padding: 10px 14px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.history-item__delete:hover:not(:disabled) {
+  background: rgba(177, 74, 52, 0.14);
+  border-color: rgba(177, 74, 52, 0.42);
+}
+
+.history-item__delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .history-detail {
@@ -1805,6 +1834,17 @@
 
   .history-stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .history-item {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .history-item__delete {
+    align-self: flex-start;
+    margin: 0 18px 16px;
   }
 
   .analysis-header__title,
