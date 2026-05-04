@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import './LandingPage.css';
 import forbiddenIcon from '../assets/icon1.svg';
 import lightbulbIcon from '../assets/icon2.svg';
@@ -99,6 +99,18 @@ export function LandingPage({ onEnterApp }) {
   const [paymentError, setPaymentError] = useState(null);
   const [paymentSuccess, setPaymentSuccess] = useState(null);
 
+  useEffect(() => {
+    if (!paymentError) {
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setPaymentError(null);
+    }, 4000);
+
+    return () => clearTimeout(timeoutId);
+  }, [paymentError]);
+
   const handlePlanClick = async (plan) => {
     setIsProcessing(true);
     setPaymentError(null);
@@ -139,11 +151,19 @@ export function LandingPage({ onEnterApp }) {
         },
         (error) => {
           // Error callback
+          if (error.message === 'Payment cancelled by user') {
+            return;
+          }
+
           setPaymentError(`Payment failed: ${error.message}`);
           console.error('Payment error:', error);
         }
       );
     } catch (error) {
+      if (error.message === 'Payment cancelled by user') {
+        return;
+      }
+
       setPaymentError(`Error: ${error.message}`);
       console.error('Error during plan selection:', error);
     } finally {
