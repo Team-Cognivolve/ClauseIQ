@@ -1498,6 +1498,17 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                         <dd>{fileProcessedLabel}</dd>
                       </div>
                     </dl>
+
+                    {canDownloadReport && (
+                      <button
+                        type="button"
+                        className="insights-card__download-btn"
+                        onClick={handleDownloadReport}
+                        style={{ marginTop: '16px' }}
+                      >
+                        Download Report (PDF)
+                      </button>
+                    )}
                   </article>
 
                   <section className="file-summary-card">
@@ -1606,39 +1617,6 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
                   </div>
                 )}
               </section>
-
-              <aside className="workspace-right-pane">
-                <section className="insights-card">
-                  <h2 className="insights-card__title">Key Insights</h2>
-
-                  {isExtracting && (
-                    <p className="insights-card__empty">Key insights will appear once extraction finishes.</p>
-                  )}
-
-                  {isPdfDone && keyInsights.length === 0 && (
-                    <p className="insights-card__empty">No key insights could be generated from this document.</p>
-                  )}
-
-                  {keyInsights.length > 0 && (
-                    <div className="insights-list">
-                      {keyInsights.map((insight, index) => (
-                        <InsightItem key={`${insight.title}-${index}`} insight={insight} />
-                      ))}
-                    </div>
-                  )}
-
-                  {canDownloadReport && (
-                    <button
-                      type="button"
-                      className="insights-card__download-btn"
-                      onClick={handleDownloadReport}
-                    >
-                      Download Report (PDF)
-                    </button>
-                  )}
-                </section>
-
-              </aside>
             </div>
           </section>
         )}
