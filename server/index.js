@@ -40,6 +40,7 @@ const jwtSecret = String(process.env.JWT_SECRET || '').trim();
 const tavilyApiKey = String(process.env.TAVILY_API_KEY || '').trim();
 const jwtCookieName = 'clauseiq_auth';
 const b2bJwtCookieName = 'clauseiq_b2b_auth';
+const CLAUSEIQ_SPECIFICATION_ID = 'b2c-freelancer-contract-specification';
 const clientCache = new Map();
 const JURISDICTION_CONTEXT_TTL_MS = 30 * 60 * 1000;
 const JURISDICTION_PAIR_CACHE_TTL_MS = 1000;
@@ -345,6 +346,7 @@ const userSettingsSchema = new mongoose.Schema(
 );
 
 const UserSettings = mongoose.models.UserSettings || mongoose.model('UserSettings', userSettingsSchema);
+
 const B2B_POLICY_TYPES = ['freelancers', 'employees', 'vendors'];
 const B2B_POLICY_TYPE_SET = new Set(B2B_POLICY_TYPES);
 
@@ -364,6 +366,19 @@ const policyChunkSchema = new mongoose.Schema(
     text: { type: String, required: true, default: '', maxlength: 2000 },
   },
   { _id: false },
+);
+
+const clauseIQSpecificationSchema = new mongoose.Schema(
+  {
+    specId: { type: String, required: true, unique: true, trim: true, maxlength: 120 },
+    sourceFileName: { type: String, required: true, trim: true, maxlength: 260 },
+    chunksStored: { type: Number, required: true, min: 1, max: 1000 },
+    estimatedTokensStored: { type: Number, required: true, min: 1, max: 500000 },
+    summary: { type: String, default: '', maxlength: 400 },
+    chunks: { type: [policyChunkSchema], default: [] },
+    seededAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true },
 );
 
 const b2bPolicySchema = new mongoose.Schema(
@@ -401,6 +416,7 @@ b2bReviewSchema.index({ userId: 1, reviewId: 1 }, { unique: true });
 b2bReviewSchema.index({ userId: 1, createdAt: -1 });
 
 const CompanyProfile = mongoose.models.CompanyProfile || mongoose.model('CompanyProfile', companyProfileSchema);
+const ClauseIQSpecification = mongoose.models.ClauseIQSpecification || mongoose.model('ClauseIQSpecification', clauseIQSpecificationSchema);
 const B2BPolicy = mongoose.models.B2BPolicy || mongoose.model('B2BPolicy', b2bPolicySchema);
 const B2BReview = mongoose.models.B2BReview || mongoose.model('B2BReview', b2bReviewSchema);
 const b2bUpload = multer({
@@ -437,6 +453,43 @@ function chunkText(text, chunkSize = 900, overlap = 150) {
   }
 
   return chunks;
+}
+
+async function getClauseIQSpecification() {
+  return ClauseIQSpecification.findOne({ specId: CLAUSEIQ_SPECIFICATION_ID }).lean();
+}
+
+async function getClauseIQSpecificationEvidence(clause) {
+  const specification = await getClauseIQSpecification();
+  const chunks = Array.isArray(specification?.chunks)
+    ? specification.chunks.map((chunk) => ({
+      fileName: specification.sourceFileName || 'ClauseIQ Freelancer Specification',
+      chunkIndex: chunk.index,
+      text: chunk.text,
+    }))
+    : [];
+
+  if (!chunks.length) {
+    return [];
+  }
+
+  const scoredEvidence = scoreEvidenceForClause(clause?.cleanText || clause?.text || '', chunks);
+  return scoredEvidence.length ? scoredEvidence : chunks.slice(0, 3);
+}
+
+function buildClauseIQSpecificationPromptBlock(evidence) {
+  if (!evidence.length) {
+    return '';
+  }
+
+  return [
+    'ClauseIQ freelancer specification RAG:',
+    'Use this internal specification as controlling review guidance for B2C freelancer contract analysis.',
+    'If the contract clause conflicts with this specification, explain the issue and give practical negotiation guidance.',
+    evidence
+      .map((item, index) => `Specification evidence ${index + 1} (${item.fileName}#${item.chunkIndex}): ${item.text}`)
+      .join('\n\n'),
+  ].join('\n');
 }
 
 function createEphemeralId(prefix = 'ctx') {
@@ -2628,8 +2681,10 @@ app.post('/api/github-copilot/analyze', requireAuth, async (req, res) => {
     const jurisdictionContext = getJurisdictionContext(jurisdictionContextId);
     const jurisdictionTopic = detectJurisdictionTopic(clause);
     const jurisdictionPromptBlock = buildJurisdictionPromptBlock(jurisdictionContext, jurisdictionTopic);
+    const specificationEvidence = await getClauseIQSpecificationEvidence(clause);
+    const specificationPromptBlock = buildClauseIQSpecificationPromptBlock(specificationEvidence);
 
-    const prompt = `${SYSTEM_PROMPT}\n\n${jurisdictionPromptBlock ? `${jurisdictionPromptBlock}\n\n` : ''}${buildClauseAnalysisPrompt(clause)}`;
+    const prompt = `${SYSTEM_PROMPT}\n\n${specificationPromptBlock ? `${specificationPromptBlock}\n\n` : ''}${jurisdictionPromptBlock ? `${jurisdictionPromptBlock}\n\n` : ''}${buildClauseAnalysisPrompt(clause)}`;
     const response = await session.sendAndWait({ prompt });
     const content = response?.data?.content ?? '';
     const parsed = normalizeApiPayload(extractJSON(content));
@@ -2772,7 +2827,7 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 connectMongo()
-  .then(() => {
+  .then(async () => {
     // Initialize Razorpay
     try {
       initializeRazorpay();
