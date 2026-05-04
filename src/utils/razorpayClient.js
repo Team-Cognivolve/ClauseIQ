@@ -141,83 +141,66 @@ export async function initiatePayment(planType, userDetails = {}) {
       || ''
     );
 
-    // Setup Razorpay checkout options
-    const options = {
-      key: razorpayPublicKey,
-      amount: planDetails.amount, // Amount in paise
-      currency: 'INR',
-      name: 'ClauseIQ',
-      description: planDetails.description,
-      image: '/src/assets/logo.png', // Your logo URL
-      order_id: orderResponse.orderId,
-      customer_notify: 1,
-      handler: async (response) => {
-        try {
-          // Verify payment on backend
-          const verificationResult = await verifyPayment(
-            response.razorpay_order_id,
-            response.razorpay_payment_id,
-            response.razorpay_signature,
-            planType,
-          );
-
-          return verificationResult;
-        } catch (error) {
-          console.error('Payment verification failed:', error);
-          throw error;
-        }
-      },
-      prefill: {
-        name: userDetails.name || '',
-        email: userDetails.email || '',
-      },
-      notes: {
-        planType,
-        platform: 'clauseiq-web',
-      },
-      theme: {
-        color: '#0b1119',
-      },
-      modal: {
-        ondismiss: () => {
-          console.log('Payment cancelled by user');
-        },
-      },
-    };
-
     // Check if Razorpay is available
     if (!window.Razorpay) {
       throw new Error('Razorpay is not available');
     }
 
-    // Create and open checkout
-    const razorpay = new window.Razorpay(options);
-
-    // Handle payment error
-    razorpay.on('payment.failed', (response) => {
-      console.error('Payment failed:', response.error);
-      throw new Error(`Payment failed: ${response.error.code} - ${response.error.description}`);
-    });
-
-    // Open payment modal
-    razorpay.open();
-
-    // Return a promise that resolves when payment completes
+    // Return a promise that settles for success, failure, and user cancellation.
     return new Promise((resolve, reject) => {
-      const originalHandler = options.handler;
-      
-      options.handler = async (response) => {
-        try {
-          const result = await originalHandler(response);
-          resolve(result);
-        } catch (error) {
-          reject(error);
-        }
+      const options = {
+        key: razorpayPublicKey,
+        amount: planDetails.amount, // Amount in paise
+        currency: 'INR',
+        name: 'ClauseIQ',
+        description: planDetails.description,
+        image: '/src/assets/logo.png', // Your logo URL
+        order_id: orderResponse.orderId,
+        customer_notify: 1,
+        handler: async (response) => {
+          try {
+            // Verify payment on backend
+            const verificationResult = await verifyPayment(
+              response.razorpay_order_id,
+              response.razorpay_payment_id,
+              response.razorpay_signature,
+              planType,
+            );
+
+            resolve(verificationResult);
+          } catch (error) {
+            console.error('Payment verification failed:', error);
+            reject(error);
+          }
+        },
+        prefill: {
+          name: userDetails.name || '',
+          email: userDetails.email || '',
+        },
+        notes: {
+          planType,
+          platform: 'clauseiq-web',
+        },
+        theme: {
+          color: '#0b1119',
+        },
+        modal: {
+          ondismiss: () => {
+            reject(new Error('Payment cancelled by user'));
+          },
+        },
       };
 
+      // Create and open checkout
+      const razorpay = new window.Razorpay(options);
+
       razorpay.on('payment.failed', (response) => {
-        reject(new Error(`Payment failed: ${response.error.code}`));
+        console.error('Payment failed:', response.error);
+        reject(new Error(`Payment failed: ${response.error.code} - ${response.error.description}`));
       });
+
+      // Open payment modal
+      razorpay.open();
     });
   } catch (error) {
     console.error('Error initiating payment:', error);
