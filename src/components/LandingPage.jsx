@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import './LandingPage.css';
 import forbiddenIcon from '../assets/icon1.svg';
 import lightbulbIcon from '../assets/icon2.svg';
 import loginIcon from '../assets/icon3.svg';
+import { handlePlanSelection } from '../utils/razorpayClient.js';
 
 const pricingPlans = [
   {
@@ -52,7 +53,7 @@ const pricingPlans = [
   },
 ];
 
-function PricingCard({ plan, onClick, featured }) {
+function PricingCard({ plan, onClick, featured, onPlanSelect, isProcessing }) {
   return (
     <div className={`pricing-card ${featured ? 'pricing-card--featured' : ''}`}>
       {featured && <div className="pricing-card__badge">Most Popular</div>}
@@ -62,8 +63,18 @@ function PricingCard({ plan, onClick, featured }) {
         {plan.period && <span className="pricing-card__period">{plan.period}</span>}
       </div>
       <p className="pricing-card__description">{plan.description}</p>
-      <button className="pricing-card__button" onClick={onClick || (() => null)}>
-        {plan.buttonText}
+      <button 
+        className="pricing-card__button" 
+        onClick={() => {
+          if (plan.title === 'Free Plan') {
+            onClick?.();
+          } else {
+            onPlanSelect?.(plan);
+          }
+        }}
+        disabled={isProcessing}
+      >
+        {isProcessing ? 'Processing...' : plan.buttonText}
       </button>
       <div className="pricing-card__features">
         <h4 className="pricing-card__features-title">Features</h4>
@@ -84,8 +95,93 @@ function PricingCard({ plan, onClick, featured }) {
 }
 
 export function LandingPage({ onEnterApp }) {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [paymentError, setPaymentError] = useState(null);
+  const [paymentSuccess, setPaymentSuccess] = useState(null);
+
+  const handlePlanClick = async (plan) => {
+    setIsProcessing(true);
+    setPaymentError(null);
+    setPaymentSuccess(null);
+
+    try {
+      // Get user details (you can fetch these from logged-in user or ask user to provide)
+      const userDetails = {
+        email: '', // You can get this from localStorage or context if user is logged in
+        name: '', // Same here
+      };
+
+      // Map plan title to Razorpay plan type
+      const planTypeMap = {
+        'PAYG Wallet': 'PAYG_WALLET',
+        'Light Membership': 'MEMBERSHIP',
+      };
+
+      const planType = planTypeMap[plan.title];
+
+      if (!planType) {
+        throw new Error('Invalid plan selected');
+      }
+
+      // Initiate payment
+      await handlePlanSelection(
+        planType,
+        userDetails,
+        (result) => {
+          // Success callback
+          setPaymentSuccess(`Successfully purchased ${plan.title}! Redirecting...`);
+          console.log('Payment successful:', result);
+          
+          // After a short delay, redirect to app or show success message
+          setTimeout(() => {
+            onEnterApp?.();
+          }, 2000);
+        },
+        (error) => {
+          // Error callback
+          setPaymentError(`Payment failed: ${error.message}`);
+          console.error('Payment error:', error);
+        }
+      );
+    } catch (error) {
+      setPaymentError(`Error: ${error.message}`);
+      console.error('Error during plan selection:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="landing">
+      {/* Payment Status Messages */}
+      {paymentError && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          backgroundColor: '#ff4444',
+          color: 'white',
+          padding: '16px 20px',
+          borderRadius: '8px',
+          zIndex: 1000,
+        }}>
+          {paymentError}
+        </div>
+      )}
+      {paymentSuccess && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          backgroundColor: '#44ff44',
+          color: '#000',
+          padding: '16px 20px',
+          borderRadius: '8px',
+          zIndex: 1000,
+        }}>
+          {paymentSuccess}
+        </div>
+      )}
       {/* Top Navigation Bar */}
       <nav className="landing-nav">
         <div className="landing-nav__container">
@@ -311,9 +407,25 @@ export function LandingPage({ onEnterApp }) {
             <p className="pricing__subtitle">B2C uses Free + PAYG + optional membership. B2B remains subscription-led.</p>
           </div>
           <div className="pricing__grid">
-            <PricingCard plan={pricingPlans[0]} onClick={onEnterApp} />
-            <PricingCard plan={pricingPlans[1]} onClick={onEnterApp} featured />
-            <PricingCard plan={pricingPlans[2]} onClick={onEnterApp} />
+            <PricingCard 
+              plan={pricingPlans[0]} 
+              onClick={onEnterApp}
+              onPlanSelect={handlePlanClick}
+              isProcessing={isProcessing}
+            />
+            <PricingCard 
+              plan={pricingPlans[1]} 
+              onClick={onEnterApp}
+              onPlanSelect={handlePlanClick}
+              featured
+              isProcessing={isProcessing}
+            />
+            <PricingCard 
+              plan={pricingPlans[2]} 
+              onClick={onEnterApp}
+              onPlanSelect={handlePlanClick}
+              isProcessing={isProcessing}
+            />
           </div>
         </div>
       </section>

@@ -25,6 +25,11 @@ import {
   normalizeClauseAnalysis,
   validateAndEnrichAnalysis,
 } from '../src/utils/rag.js';
+import {
+  initializeRazorpay,
+  createRazorpayOrder,
+  verifyPaymentSignature,
+} from './razorpayService.js';
 
 const app = express();
 const port = Number(process.env.COPILOT_SERVER_PORT || 8787);
@@ -2612,6 +2617,122 @@ app.post('/api/github-copilot/analyze', requireAuth, async (req, res) => {
   }
 });
 
+// ============================================
+// RAZORPAY PAYMENT ENDPOINTS
+// ============================================
+
+/**
+ * POST /api/payment/create-order
+ * Create a Razorpay order for plan purchase
+ * Request body: { planType: 'PAYG_WALLET' | 'MEMBERSHIP', amount: number (in paise) }
+ */
+app.post('/api/payment/create-order', async (req, res) => {
+  const planType = String(req.body?.planType || '').trim();
+  const amount = Number(req.body?.amount) || 0;
+
+  if (!planType || !['PAYG_WALLET', 'MEMBERSHIP'].includes(planType)) {
+    return jsonError(res, 400, 'Invalid planType. Must be PAYG_WALLET or MEMBERSHIP.');
+  }
+
+  if (amount <= 0 || amount > 500000) {
+    return jsonError(res, 400, 'Invalid amount. Must be between 1 and 500000 paise.');
+  }
+
+  try {
+    const order = await createRazorpayOrder({
+      amount,
+      planType,
+      userId: req.authUser?._id?.toString() || 'guest',
+    });
+
+    return res.status(201).json({
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      receipt: order.receipt,
+      createdAt: new Date(order.created_at * 1000).toISOString(),
+    });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Failed to create payment order.');
+  }
+});
+
+/**
+ * POST /api/payment/verify
+ * Verify Razorpay payment signature
+ * Request body: { razorpayOrderId, razorpayPaymentId, razorpaySignature, planType }
+ */
+app.post('/api/payment/verify', (req, res) => {
+  const razorpayOrderId = String(req.body?.razorpayOrderId || '').trim();
+  const razorpayPaymentId = String(req.body?.razorpayPaymentId || '').trim();
+  const razorpaySignature = String(req.body?.razorpaySignature || '').trim();
+  const planType = String(req.body?.planType || '').trim();
+
+  if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+    return jsonError(res, 400, 'Missing payment verification details.');
+  }
+
+  try {
+    const isValidSignature = verifyPaymentSignature({
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+    });
+
+    if (!isValidSignature) {
+      return jsonError(res, 400, 'Payment verification failed. Invalid signature.');
+    }
+
+    // Payment verified successfully
+    return res.json({
+      success: true,
+      message: 'Payment verified successfully.',
+      paymentId: razorpayPaymentId,
+      orderId: razorpayOrderId,
+      planType,
+      verifiedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Payment verification failed.');
+  }
+});
+
+/**
+ * POST /api/payment/webhook
+ * Webhook endpoint for Razorpay payment events (optional, for production)
+ * Razorpay will send payment status updates here
+ */
+app.post('/api/payment/webhook', (req, res) => {
+  try {
+    const event = req.body?.event;
+    const payload = req.body?.payload || {};
+
+    if (!event) {
+      return jsonError(res, 400, 'No event provided.');
+    }
+
+    // Handle different payment events
+    switch (event) {
+      case 'payment.authorized':
+        console.log('Payment authorized:', payload?.payment?.entity?.id);
+        break;
+      case 'payment.failed':
+        console.error('Payment failed:', payload?.payment?.entity?.id);
+        break;
+      case 'payment.captured':
+        console.log('Payment captured:', payload?.payment?.entity?.id);
+        break;
+      default:
+        console.log('Payment event received:', event);
+    }
+
+    // Acknowledge webhook receipt
+    return res.json({ acknowledged: true });
+  } catch (error) {
+    return jsonError(res, 500, error.message || 'Webhook processing failed.');
+  }
+});
+
 const shutdown = async () => {
   await stopAllClients();
   await mongoose.disconnect().catch(() => null);
@@ -2623,6 +2744,14 @@ process.on('SIGTERM', shutdown);
 
 connectMongo()
   .then(() => {
+    // Initialize Razorpay
+    try {
+      initializeRazorpay();
+      console.log('Razorpay initialized successfully.');
+    } catch (error) {
+      console.warn('Razorpay initialization warning:', error.message);
+    }
+
     app.listen(port, () => {
       console.log(`ClauseIQ Copilot server listening on http://127.0.0.1:${port}`);
     });
