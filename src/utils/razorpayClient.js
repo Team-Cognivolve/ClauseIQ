@@ -148,6 +148,17 @@ export async function initiatePayment(planType, userDetails = {}) {
 
     // Return a promise that settles for success, failure, and user cancellation.
     return new Promise((resolve, reject) => {
+      let isSettled = false;
+      const settlePayment = (settle, value) => {
+        if (isSettled) {
+          return;
+        }
+
+        isSettled = true;
+        document.body.classList.remove('razorpay-checkout-open');
+        settle(value);
+      };
+
       const options = {
         key: razorpayPublicKey,
         amount: planDetails.amount, // Amount in paise
@@ -167,10 +178,10 @@ export async function initiatePayment(planType, userDetails = {}) {
               planType,
             );
 
-            resolve(verificationResult);
+            settlePayment(resolve, verificationResult);
           } catch (error) {
             console.error('Payment verification failed:', error);
-            reject(error);
+            settlePayment(reject, error);
           }
         },
         prefill: {
@@ -186,7 +197,7 @@ export async function initiatePayment(planType, userDetails = {}) {
         },
         modal: {
           ondismiss: () => {
-            reject(new Error('Payment cancelled by user'));
+            settlePayment(reject, new Error('Payment cancelled by user'));
           },
         },
       };
@@ -196,10 +207,11 @@ export async function initiatePayment(planType, userDetails = {}) {
 
       razorpay.on('payment.failed', (response) => {
         console.error('Payment failed:', response.error);
-        reject(new Error(`Payment failed: ${response.error.code} - ${response.error.description}`));
+        settlePayment(reject, new Error(`Payment failed: ${response.error.code} - ${response.error.description}`));
       });
 
       // Open payment modal
+      document.body.classList.add('razorpay-checkout-open');
       razorpay.open();
     });
   } catch (error) {

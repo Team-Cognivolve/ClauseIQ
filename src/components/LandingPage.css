@@ -19,6 +19,11 @@
   background: var(--landing-bg);
   color: var(--landing-text-primary);
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  transition: filter 180ms ease;
+}
+
+body.razorpay-checkout-open .landing {
+  filter: blur(6px);
 }
 
 .landing-nav {
