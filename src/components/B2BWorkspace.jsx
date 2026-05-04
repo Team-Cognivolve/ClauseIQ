@@ -7,15 +7,33 @@ import './B2BWorkspace.css';
 const POLICY_TYPES = ['freelancers', 'employees', 'vendors'];
 const COPILOT_MODEL_STORAGE_KEY = 'clauseiq_github_copilot_model';
 
+const POLICY_TYPE_LABELS = {
+  freelancers: 'Freelancer Agreements',
+  employees: 'Employee Agreements',
+  vendors: 'Vendor Agreements',
+};
+
 function readStoredModel() {
   if (typeof window === 'undefined') return 'gpt-4.1';
   return window.sessionStorage.getItem(COPILOT_MODEL_STORAGE_KEY) || 'gpt-4.1';
 }
 
-function b2bUserLabel(user) {
-  const company = String(user?.companyName || '').trim();
+function b2bUserLabel(user, profile) {
+  const company = String(profile?.companyName || user?.companyName || '').trim();
   const email = String(user?.email || '').trim();
   return company || email || 'B2B Workspace';
+}
+
+function b2bIndustryLabel(profile) {
+  return String(profile?.industry || '').trim() || 'Not set';
+}
+
+function b2bWorkspaceStatus(profile, policyCount) {
+  const hasProfile = Boolean(String(profile?.companyName || '').trim() && String(profile?.industry || '').trim());
+  if (hasProfile && policyCount > 0) return 'Ready for contract review';
+  if (!hasProfile && policyCount === 0) return 'Add company profile and policies';
+  if (!hasProfile) return 'Complete company profile';
+  return 'Upload policy documents';
 }
 
 function toBulletPoints(text) {
@@ -75,6 +93,7 @@ export function B2BWorkspace({ user, onSignOut }) {
   const [chatBusy, setChatBusy] = useState(false);
 
   const copilotReady = copilot.isConfigured && copilot.isAuthenticated && Boolean(model.trim());
+  const policyCount = (policies.freelancers?.length || 0) + (policies.employees?.length || 0) + (policies.vendors?.length || 0);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -141,10 +160,10 @@ export function B2BWorkspace({ user, onSignOut }) {
   }, [selectedReviewId]);
 
   useEffect(() => {
-    if (status !== 'Review completed.') return undefined;
+    if (!status || status.endsWith('...')) return undefined;
 
     const timeoutId = setTimeout(() => {
-      setStatus((current) => (current === 'Review completed.' ? '' : current));
+      setStatus((current) => (current === status ? '' : current));
     }, 5000);
 
     return () => clearTimeout(timeoutId);
@@ -395,7 +414,7 @@ export function B2BWorkspace({ user, onSignOut }) {
       )}
 
       {!copilot.isAuthenticated && !copilot.configurationError && (
-        <p className="b2b-copilot-hint">You can still upload and review with fallback analysis if not connected.</p>
+        <p className="b2b-copilot-hint">Connect Copilot before running contract compliance reviews.</p>
       )}
     </article>
   );
@@ -455,33 +474,35 @@ export function B2BWorkspace({ user, onSignOut }) {
         {activeTab === 'home' && (
           <section className="b2b-grid b2b-home">
           <article className="b2b-card">
-            <h2>B2B Policy Compliance</h2>
+            <h2>Policy Compliance Review</h2>
             <p>
-              Upload policy PDFs, analyze outgoing contracts against your internal rules, and use Copilot-based
-              follow-up Q&A on saved reviews.
+              Review business contracts against your company policies before they are signed. Upload internal
+              policy PDFs once, then check freelancer, employee, and vendor agreements for missing clauses,
+              risky terms, and policy violations.
             </p>
             <ul>
-              <li>Storage: MongoDB (profile, policies, reviews).</li>
-              <li>Analysis model: GitHub Copilot models only.</li>
-              <li>Auth: Same root ClauseIQ session and cookies.</li>
+              <li>Maintain separate policy libraries for freelancer, employee, and vendor contracts.</li>
+              <li>Compare each uploaded contract with the matching policy set.</li>
+              <li>Get clause-level findings, severity, rationale, and saved review history.</li>
+              <li>Ask follow-up questions on completed reviews using the compliance chat.</li>
             </ul>
           </article>
 
           <article className="b2b-card">
-            <h3>Snapshot</h3>
-            <p>{b2bUserLabel(user)}</p>
-            <p>Policies: {(policies.freelancers?.length || 0) + (policies.employees?.length || 0) + (policies.vendors?.length || 0)}</p>
-            <p>Reviews: {reviews.length}</p>
-            <p>Copilot: {copilotReady ? 'Connected' : 'Not ready'}</p>
+            <h3>Workspace Snapshot</h3>
+            <p>Organization: {b2bUserLabel(user, profile)}</p>
+            <p>Industry: {b2bIndustryLabel(profile)}</p>
+            <p>Policy documents: {policyCount}</p>
+            <p>Workspace status: {b2bWorkspaceStatus(profile, policyCount)}</p>
           </article>
 
           <article className="b2b-card b2b-home__quick-analyze">
-            <h3>Quick Analyze</h3>
+            <h3>Analyze Contract</h3>
             <form className="b2b-stack" onSubmit={handleAnalyzeContract}>
               <label>
-                Contract Type
+                Contract Category
                 <select value={reviewType} onChange={(event) => setReviewType(event.target.value)}>
-                  {POLICY_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                  {POLICY_TYPES.map((type) => <option key={type} value={type}>{POLICY_TYPE_LABELS[type]}</option>)}
                 </select>
               </label>
               <div className="b2b-field">
@@ -566,7 +587,7 @@ export function B2BWorkspace({ user, onSignOut }) {
               <label>
                 Policy Type
                 <select value={policyType} onChange={(event) => setPolicyType(event.target.value)}>
-                  {POLICY_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                  {POLICY_TYPES.map((type) => <option key={type} value={type}>{POLICY_TYPE_LABELS[type]}</option>)}
                 </select>
               </label>
               <div className="b2b-field">
@@ -607,7 +628,7 @@ export function B2BWorkspace({ user, onSignOut }) {
             <div className="b2b-policy-grid">
               {POLICY_TYPES.map((type) => (
                 <div key={type} className="b2b-policy-col">
-                  <h4>{type}</h4>
+                  <h4>{POLICY_TYPE_LABELS[type]}</h4>
                   {(policies[type] || []).length ? (
                     <ul>
                       {policies[type].map((policy) => (
