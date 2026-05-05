@@ -40,6 +40,9 @@ COPILOT_SERVER_PORT=8787
 MONGODB_URI=your_mongodb_uri_here
 JWT_SECRET=your_jwt_secret_here
 TAVILY_API_KEY=your_tavily_api_key_here
+RAZORPAY_KEY_ID=test_key_id_here
+RAZORPAY_KEY_SECRET=secret_key_here
+VITE_RAZORPAY_KEY_ID=same_as_RAZORPAY_KEY_ID_here
 ```
 
 Notes:
@@ -49,7 +52,21 @@ Notes:
 - `MONGODB_URI` must be a valid MongoDB Atlas connection string.
 - `JWT_SECRET` should be a strong secret (minimum 16 characters).
 - `TAVILY_API_KEY` enables jurisdiction scout research for cross-border ClauseIQ reviews.
+- `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `VITE_RAZORPAY_KEY_ID` enable Razorpay payments.
 - Copilot model names are entered in the frontend, not in `.env`.
+
+## Vercel Deployment
+
+The project includes `vercel.json` and a serverless API entrypoint at `api/index.js`.
+
+Vercel settings:
+
+- Framework Preset: Vite
+- Build Command: `npm run build`
+- Output Directory: `dist`
+- Install Command: `npm install`
+
+Add the environment variables above in the Vercel project settings before deploying.
 
 ## Jurisdiction Awareness (ClauseIQ Only)
 

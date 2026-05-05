@@ -814,29 +814,7 @@ async function searchTavily(query, options = {}) {
   return runSearch([]);
 }
 
-function mergeTavilyResults(...resultGroups) {
-  const merged = [];
-  const seenUrls = new Set();
-
-  for (const group of resultGroups) {
-    if (!Array.isArray(group)) continue;
-
-    for (const item of group) {
-      const urlKey = String(item?.url || '').trim().toLowerCase();
-      if (!urlKey || seenUrls.has(urlKey)) continue;
-      seenUrls.add(urlKey);
-      merged.push(item);
-
-      if (merged.length >= 5) {
-        return merged;
-      }
-    }
-  }
-
-  return merged;
-}
-
-function summarizeJurisdictionResearch(results, fallbackTitle) {
+function summarizeJurisdictionResearch(results) {
   const top = Array.isArray(results)
     ? results.slice(0, 5).map((item) => ({
       title: safeTrimmedString(item?.title, '', 180),
@@ -2848,21 +2826,34 @@ const shutdown = async () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-connectMongo()
-  .then(async () => {
-    // Initialize Razorpay
-    try {
-      initializeRazorpay();
-      console.log('Razorpay initialized successfully.');
-    } catch (error) {
-      console.warn('Razorpay initialization warning:', error.message);
-    }
+let serverReadyPromise;
 
-    app.listen(port, () => {
-      console.log(`ClauseIQ Copilot server listening on http://127.0.0.1:${port}`);
+export async function ensureServerReady() {
+  if (!serverReadyPromise) {
+    serverReadyPromise = connectMongo().then(() => {
+      try {
+        initializeRazorpay();
+        console.log('Razorpay initialized successfully.');
+      } catch (error) {
+        console.warn('Razorpay initialization warning:', error.message);
+      }
     });
-  })
-  .catch((error) => {
-    console.error(error.message || 'Failed to start ClauseIQ server.');
-    process.exit(1);
-  });
+  }
+
+  return serverReadyPromise;
+}
+
+export { app };
+
+if (!process.env.VERCEL) {
+  ensureServerReady()
+    .then(() => {
+      app.listen(port, () => {
+        console.log(`ClauseIQ Copilot server listening on http://127.0.0.1:${port}`);
+      });
+    })
+    .catch((error) => {
+      console.error(error.message || 'Failed to start ClauseIQ server.');
+      process.exit(1);
+    });
+}

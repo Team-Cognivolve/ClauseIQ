@@ -947,10 +947,6 @@ export function ClauseIQ({ onSignOut, onBackToLanding, user }) {
   const isPdfDone = pdf.status === 'done';
   const canDownloadReport = isPdfDone && !analyzing && Boolean(selectedFile) && Array.isArray(results);
   const canUseChat = activeView === MENU_VIEW.WORKSPACE && Boolean(selectedFile) && isPdfDone;
-  const userInitial = useMemo(() => {
-    const source = String(user?.name || user?.email || 'U').trim();
-    return source ? source.charAt(0).toUpperCase() : 'U';
-  }, [user?.email, user?.name]);
 
   const fileProcessedLabel = useMemo(() => {
     if (isExtracting) return 'Processing...';

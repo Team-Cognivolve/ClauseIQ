@@ -137,7 +137,6 @@ export async function initiatePayment(planType, userDetails = {}) {
     // Resolve public Razorpay key for browser (Vite uses import.meta.env)
     const razorpayPublicKey = (
       (typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env.VITE_RAZORPAY_KEY_ID || import.meta.env.REACT_APP_RAZORPAY_KEY_ID))
-      || (typeof process !== 'undefined' && process.env && process.env.REACT_APP_RAZORPAY_KEY_ID)
       || ''
     );
 
